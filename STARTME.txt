@@ -1,0 +1,19 @@
+aquifer — HIPAA de-identification engine with portable medical data format
+Stack: python, docker
+
+COMMANDS
+  docker-cmd: ["python", "-m", "aquifer", "dashboard", \
+
+STRUCTURE
+  Dockerfile
+  README.md
+  aquifer/ (38 files)
+  aquifer-claims/ (19 files)
+  aquifer.egg-info/ (6 files)
+  docs/ (3 files)
+  pyproject.toml
+  tests/ (61 files)
+
+PORTS: 8080
+
+LICENSE: Apache-2.0

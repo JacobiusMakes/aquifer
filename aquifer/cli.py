@@ -249,5 +249,173 @@ def dashboard(vault_path: str, password: str | None, host: str, port: int):
     run(vault_path, password, host=host, port=port)
 
 
+# ---------------------------------------------------------------------------
+# License management
+# ---------------------------------------------------------------------------
+
+@cli.command()
+@click.argument("license_key")
+def activate(license_key: str):
+    """Activate a license key to unlock paid features."""
+    from aquifer.licensing import activate_license
+
+    license = activate_license(license_key)
+    if license.is_valid:
+        click.echo(f"License activated successfully!")
+        click.echo(f"  Tier: {license.tier.value}")
+        click.echo(f"  Practice: {license.practice_id}")
+        click.echo(f"  Expires: {license.expires}")
+        click.echo(f"  Features: {', '.join(sorted(license.features))}")
+    else:
+        click.echo(f"License validation failed: {license.error}", err=True)
+        sys.exit(1)
+
+
+@cli.command()
+def license():
+    """Show current license status."""
+    from aquifer.licensing import get_current_license
+
+    lic = get_current_license()
+    click.echo(f"Tier: {lic.tier.value}")
+    click.echo(f"Valid: {lic.is_valid}")
+    if lic.practice_id:
+        click.echo(f"Practice: {lic.practice_id}")
+    click.echo(f"Expires: {lic.expires}")
+    if lic.file_limit:
+        click.echo(f"File limit: {lic.file_limit}/month")
+    else:
+        click.echo(f"File limit: unlimited")
+    click.echo(f"Features: {', '.join(sorted(lic.features))}")
+
+
+# ---------------------------------------------------------------------------
+# Claims intelligence (requires Starter+ license or API key)
+# ---------------------------------------------------------------------------
+
+@cli.group()
+def claims():
+    """Claims intelligence commands (requires paid license or API key)."""
+    pass
+
+
+@claims.command()
+@click.argument("cdt_codes", nargs=-1, required=True)
+@click.option("--payer", required=True, help="Payer ID (e.g., delta_dental)")
+@click.option("--doc-score", default=1.0, type=float,
+              help="Documentation completeness score (0.0-1.0)")
+@click.option("--api-key", envvar="AQUIFER_API_KEY", default=None,
+              help="API key for hosted service (or set AQUIFER_API_KEY)")
+def predict(cdt_codes: tuple[str], payer: str, doc_score: float, api_key: str | None):
+    """Predict denial risk before submitting a claim.
+
+    Example: aquifer claims predict D3330 D2750 --payer delta_dental
+    """
+    if api_key:
+        # Use hosted API
+        from aquifer.api_client import AquiferAPI, APIConfig
+        with AquiferAPI(APIConfig(api_key=api_key)) as api:
+            result = api.predict_denial(list(cdt_codes), payer, doc_score)
+    else:
+        # Check license for local prediction
+        from aquifer.licensing import require_feature, LicenseError
+        try:
+            require_feature("denial_prediction")
+        except LicenseError as e:
+            click.echo(str(e), err=True)
+            click.echo("\nAlternatively, use --api-key for hosted predictions.", err=True)
+            sys.exit(1)
+
+        click.echo("Local prediction requires the aquifer-claims module.", err=True)
+        click.echo("Use --api-key for hosted predictions, or install aquifer-claims.", err=True)
+        sys.exit(1)
+
+    # Display results
+    color = {"low": "green", "medium": "yellow", "high": "red", "critical": "red"}
+    click.echo(f"\nDenial Risk Assessment")
+    click.echo(f"  CDT Codes: {', '.join(cdt_codes)}")
+    click.echo(f"  Payer: {payer}")
+    click.secho(f"  Risk Score: {result.risk_score:.0%} ({result.risk_level.upper()})",
+                fg=color.get(result.risk_level, "white"), bold=True)
+    click.echo(f"  Historical denial rate: {result.historical_denial_rate:.0%}")
+
+    if result.risk_factors:
+        click.echo(f"\n  Risk Factors:")
+        for f in result.risk_factors:
+            click.echo(f"    - {f}")
+
+    if result.recommended_actions:
+        click.echo(f"\n  Recommended Actions:")
+        for a in result.recommended_actions:
+            click.echo(f"    - {a}")
+
+
+@claims.command()
+@click.option("--carc", required=True, help="CARC denial reason code")
+@click.option("--cdt", required=True, help="Primary CDT code")
+@click.option("--payer", required=True, help="Payer ID")
+@click.option("--amount", required=True, type=float, help="Denied amount")
+@click.option("--description", default="", help="Denial description")
+@click.option("--api-key", envvar="AQUIFER_API_KEY", default=None,
+              help="API key for hosted service")
+@click.option("-o", "--output", "output_file", default=None,
+              help="Save appeal draft to file")
+def appeal(carc: str, cdt: str, payer: str, amount: float,
+           description: str, api_key: str | None, output_file: str | None):
+    """Generate an appeal letter draft for a denied claim.
+
+    Example: aquifer claims appeal --carc 16 --cdt D3330 --payer delta_dental --amount 950
+    """
+    if api_key:
+        from aquifer.api_client import AquiferAPI, APIConfig
+        with AquiferAPI(APIConfig(api_key=api_key)) as api:
+            result = api.generate_appeal(carc, cdt, payer, description, amount)
+    else:
+        from aquifer.licensing import require_feature, LicenseError
+        try:
+            require_feature("appeal_generation")
+        except LicenseError as e:
+            click.echo(str(e), err=True)
+            click.echo("\nUse --api-key for hosted appeal generation.", err=True)
+            sys.exit(1)
+
+        click.echo("Local appeal generation requires the aquifer-claims module.", err=True)
+        sys.exit(1)
+
+    click.echo(f"\nAppeal Draft (confidence: {result.confidence:.0%})")
+    click.echo(f"Based on {result.similar_appeal_count} similar appeals "
+               f"({result.estimated_success_rate:.0%} success rate)")
+    click.echo(f"Template: {result.template_id}")
+    click.echo(f"\n{'='*60}\n")
+    click.echo(result.appeal_text)
+    click.echo(f"\n{'='*60}")
+
+    if output_file:
+        Path(output_file).write_text(result.appeal_text)
+        click.echo(f"\nSaved to {output_file}")
+
+
+@claims.command("status")
+@click.argument("claim_number")
+@click.option("--api-key", envvar="AQUIFER_API_KEY", default=None)
+def claim_status(claim_number: str, api_key: str | None):
+    """Check the status of a tracked claim."""
+    if not api_key:
+        click.echo("Claim tracking requires an API key. Set AQUIFER_API_KEY or use --api-key.", err=True)
+        sys.exit(1)
+
+    from aquifer.api_client import AquiferAPI, APIConfig
+    with AquiferAPI(APIConfig(api_key=api_key)) as api:
+        result = api.get_claim_status(claim_number)
+
+    click.echo(f"Claim: {result.claim_number}")
+    click.echo(f"  Status: {result.status}")
+    click.echo(f"  Last updated: {result.last_updated}")
+    if result.payment_amount is not None:
+        click.echo(f"  Payment: ${result.payment_amount:.2f}")
+    if result.denial_reason:
+        click.echo(f"  Denial reason: {result.denial_reason}")
+
+
 if __name__ == "__main__":
     cli()
