@@ -1,0 +1,74 @@
+EDGE CASE DOCUMENT — PHI Detection Stress Test
+
+=== NAMES IN UNUSUAL POSITIONS ===
+Referring physician: Dr. Amanda Hernandez-Garcia
+Cc: Dr. Wei Li
+Patient's emergency contact: Robert O'Brien (spouse)
+Interpreter present: Maria Santos-Reyes (Spanish)
+Guarantor: MICHAEL JAMES WILSON SR.
+
+=== DATES IN MANY FORMATS ===
+Date of birth: 06/15/1952
+Admission date: 2024-03-15
+Discharge date: March 20, 2024
+Follow-up: 4/1/24
+Last seen: 15 Jan 2024
+Surgery scheduled: Jan. 5th, 2024
+Record created: 01-15-2024
+DOB: 6/5/52
+
+=== AGES OVER 89 ===
+Patient is a 92-year-old female.
+Age: 103
+The 91 y/o male presented with...
+Patient aged 95 was seen today.
+
+=== PHONE/FAX VARIATIONS ===
+Home phone: 555-123-4567
+Work: (555) 234-5678
+Cell: 555.345.6789
+Fax: 1-800-555-0199
+Emergency contact phone: +1 (312) 555-8901
+
+=== ADDRESSES ===
+Home: 42 Maple Lane, Unit 3B, Naperville, IL 60540
+Mailing address: P.O. Box 9876, Chicago, IL 60601-9876
+Address: 100 North Michigan Avenue, Suite 1500, Chicago, IL 60602
+
+=== EMAILS ===
+patient-contact@hospital-network.org
+john.q.public+dental@gmail.com
+
+=== MEDICAL RECORD NUMBERS ===
+MRN: 2024-08-12345
+Chart #: CH-99887766
+Medical Record Number: ABCD-123456
+
+=== INSURANCE / ACCOUNT NUMBERS ===
+Member ID: BCBS-W-123456789
+Policy Number: POL-2024-AA-98765
+Group #: GRP-IL-55544
+Subscriber ID: SUB-009988776
+Claim ID: CLM-2024-03-000123
+
+=== IDENTIFIERS ===
+License #: D123-4567-8901
+DEA: AB1234567
+Serial Number: SN-XYZ-2024-001
+VIN: 1HGCM82633A004352
+
+=== IP ADDRESSES ===
+Workstation: 10.0.0.42
+External: 203.0.113.42
+
+=== THINGS THAT SHOULD NOT BE DETECTED ===
+CDT codes: D0120, D1110, D2391, D3330, D2750, D0274
+ICD-10: K02.9, K05.10, M26.10
+CPT codes: 99213, 99214
+Tooth numbers: #2, #14, #19, #30
+Dollar amounts: $150.00, $2,350.00
+Clinical terms: periapical radiolucency, chronic periodontitis
+Medication: Amoxicillin 500mg TID x 7 days
+Vital signs: BP 120/80, HR 72, Temp 98.6F
+Practice name: Springfield Family Dentistry
+Insurance company: Delta Dental Premier

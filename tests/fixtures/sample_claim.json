@@ -1,0 +1,45 @@
+{
+  "claim_id": "CLM-2024-001234",
+  "patient": {
+    "first_name": "John",
+    "last_name": "Smith",
+    "dob": "1987-03-15",
+    "ssn": "123-45-6789",
+    "member_id": "DDI-98765432",
+    "phone": "555-867-5309",
+    "email": "john.smith@gmail.com",
+    "address": {
+      "street": "742 Evergreen Terrace",
+      "city": "Springfield",
+      "state": "IL",
+      "zip": "62704"
+    }
+  },
+  "provider": {
+    "name": "Dr. Sarah Johnson",
+    "npi": "1234567890",
+    "practice": "Springfield Family Dentistry"
+  },
+  "date_of_service": "2024-01-15",
+  "procedures": [
+    {
+      "code": "D3330",
+      "description": "Root canal therapy, molar",
+      "tooth": 30,
+      "fee": 950.00
+    },
+    {
+      "code": "D2750",
+      "description": "Crown, porcelain fused to high noble metal",
+      "tooth": 30,
+      "fee": 1200.00
+    }
+  ],
+  "insurance": {
+    "payer": "Delta Dental",
+    "plan_id": "DD-PREMIER-2024",
+    "group_number": "GRP-44821"
+  },
+  "total_fee": 2150.00,
+  "status": "submitted"
+}

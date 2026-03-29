@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Aquifer — File Detail{% endblock %}
+{% block content %}
+<div class="card">
+    <h2>{{ file_record.original_filename }}</h2>
+    <table>
+        <tr><td><strong>Source Type</strong></td><td>{{ file_record.source_type }}</td></tr>
+        <tr><td><strong>File Hash</strong></td><td><code>{{ file_record.file_hash }}</code></td></tr>
+        <tr><td><strong>AQF Hash</strong></td><td><code>{{ file_record.aqf_hash or 'N/A' }}</code></td></tr>
+        <tr><td><strong>Token Count</strong></td><td>{{ file_record.token_count }}</td></tr>
+        <tr><td><strong>Processed</strong></td><td>{{ file_record.processed_at }}</td></tr>
+    </table>
+</div>
+
+{% if tokens %}
+<div class="card">
+    <h2>Detected PHI Tokens ({{ tokens | length }})</h2>
+    <table>
+        <thead><tr><th>Token ID</th><th>Type</th><th>Confidence</th></tr></thead>
+        <tbody>
+        {% for t in tokens %}
+        <tr>
+            <td><code>{{ t.token_id[:12] }}...</code></td>
+            <td><span class="badge badge-{{ t.phi_type | lower }}">{{ t.phi_type }}</span></td>
+            <td>
+                <span class="confidence">
+                    <span class="confidence-fill {% if t.confidence >= 0.8 %}confidence-high{% elif t.confidence >= 0.5 %}confidence-med{% else %}confidence-low{% endif %}"
+                          style="width: {{ (t.confidence * 100) | int }}%"></span>
+                </span>
+                {{ "%.0f" | format(t.confidence * 100) }}%
+            </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+{% endblock %}

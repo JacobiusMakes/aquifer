@@ -1,0 +1,28 @@
+PATIENT: John Michael Smith
+DOB: 03/15/1987
+SSN: 123-45-6789
+MRN: MR-2024-0847291
+Phone: (555) 867-5309
+Email: john.smith@gmail.com
+Address: 742 Evergreen Terrace, Springfield, IL 62704
+
+PROVIDER: Dr. Sarah Johnson, DDS
+NPI: 1234567890
+Practice: Springfield Family Dentistry
+
+DATE OF SERVICE: 01/15/2024
+
+CHIEF COMPLAINT: Patient presents with pain in lower right quadrant, tooth #30.
+
+CLINICAL NOTES:
+Patient John Smith reports intermittent pain for 2 weeks. Periapical radiograph of tooth #30 shows periapical radiolucency consistent with chronic apical periodontitis. Recommended root canal therapy (CDT D3330). Patient's insurance (Delta Dental, Member ID: DDI-98765432) verified for coverage. Co-pay estimated at $150.
+
+TREATMENT PLAN:
+- D3330 Root canal therapy, molar
+- D2750 Crown, porcelain fused to high noble metal (follow-up)
+
+Patient agreed to treatment plan. Consent form signed.
+Next appointment: 01/22/2024 at 2:30 PM
+
+Notes entered by: Maria Garcia, RDA
+IP: 192.168.1.105

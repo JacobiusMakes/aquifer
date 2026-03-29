@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Aquifer — Dashboard{% endblock %}
+{% block content %}
+<div class="stats">
+    <div class="card stat">
+        <div class="value">{{ stats.total_files }}</div>
+        <div class="label">Files Processed</div>
+    </div>
+    <div class="card stat">
+        <div class="value">{{ stats.total_tokens }}</div>
+        <div class="label">PHI Tokens</div>
+    </div>
+    <div class="card stat">
+        <div class="value">{{ stats.tokens_by_type | length }}</div>
+        <div class="label">PHI Types Detected</div>
+    </div>
+</div>
+
+{% if stats.tokens_by_type %}
+<div class="card">
+    <h2>Detections by Type</h2>
+    <table>
+        <thead><tr><th>PHI Type</th><th>Count</th></tr></thead>
+        <tbody>
+        {% for ptype, count in stats.tokens_by_type.items() | sort %}
+        <tr>
+            <td><span class="badge badge-{{ ptype | lower }}">{{ ptype }}</span></td>
+            <td>{{ count }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+{% if recent_files %}
+<div class="card">
+    <h2>Recent Files</h2>
+    <table>
+        <thead><tr><th>Filename</th><th>Type</th><th>Tokens</th><th>Processed</th><th></th></tr></thead>
+        <tbody>
+        {% for f in recent_files %}
+        <tr>
+            <td>{{ f.original_filename }}</td>
+            <td>{{ f.source_type }}</td>
+            <td>{{ f.token_count }}</td>
+            <td>{{ f.processed_at }}</td>
+            <td><a href="/files/{{ f.file_hash }}" class="btn btn-primary">View</a></td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Aquifer — Upload{% endblock %}
+{% block content %}
+<div class="card">
+    <h2>Upload File for De-Identification</h2>
+    <p>Upload a medical or dental file to de-identify. Supported formats: PDF, DOCX, TXT, CSV, JSON, XML, images (JPG, PNG, TIFF).</p>
+    {% if error %}
+    <div class="flash flash-error" style="margin-bottom: 1rem;">{{ error }}</div>
+    {% endif %}
+    {% if message %}
+    <div class="flash flash-success" style="margin-bottom: 1rem;">{{ message }}</div>
+    {% endif %}
+    <form action="/upload" method="post" enctype="multipart/form-data" class="upload-form" id="uploadForm">
+        <div style="margin-bottom: 1rem;">
+            <input type="file" name="file" id="fileInput"
+                   accept=".pdf,.docx,.doc,.txt,.csv,.json,.xml,.jpg,.jpeg,.png,.tiff,.tif,.bmp"
+                   style="margin-bottom: 1rem;" required>
+        </div>
+        <div style="margin-bottom: 1rem; color: #718096; font-size: 0.85rem;">
+            <p>Files are processed locally. PHI is detected, tokenized, and stored in the vault.</p>
+            <p>The output .aqf file contains zero PHI and can be stored anywhere.</p>
+        </div>
+        <button type="submit" class="btn btn-primary" id="submitBtn">De-Identify File</button>
+    </form>
+</div>
+
+<div class="card">
+    <h2>Supported File Types</h2>
+    <table>
+        <thead><tr><th>Format</th><th>Extension</th><th>Detection Method</th></tr></thead>
+        <tbody>
+            <tr><td>PDF Documents</td><td>.pdf</td><td>Text extraction + regex + NER</td></tr>
+            <tr><td>Word Documents</td><td>.docx</td><td>Text extraction + regex + NER</td></tr>
+            <tr><td>Plain Text</td><td>.txt</td><td>Regex + NER</td></tr>
+            <tr><td>CSV/TSV</td><td>.csv</td><td>Cell-level regex + NER</td></tr>
+            <tr><td>JSON</td><td>.json</td><td>Value extraction + regex + NER</td></tr>
+            <tr><td>XML</td><td>.xml</td><td>Text extraction + regex + NER</td></tr>
+            <tr><td>Images</td><td>.jpg, .png, .tiff</td><td>OCR + regex + NER</td></tr>
+        </tbody>
+    </table>
+</div>
+
+<script>
+document.getElementById('uploadForm').addEventListener('submit', function() {
+    document.getElementById('submitBtn').textContent = 'Processing...';
+    document.getElementById('submitBtn').disabled = true;
+});
+</script>
+{% endblock %}

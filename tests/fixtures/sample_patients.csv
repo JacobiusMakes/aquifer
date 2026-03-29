@@ -1,0 +1,4 @@
+Patient Name,DOB,SSN,Phone,Email,Address,MRN,Insurance Member ID
+John Smith,03/15/1987,123-45-6789,(555) 867-5309,john.smith@gmail.com,"742 Evergreen Terrace, Springfield, IL 62704",MR-2024-001,DDI-98765432
+Jane Doe,11/22/1995,321-65-4987,(312) 555-0147,jane.doe@yahoo.com,"1600 Pennsylvania Ave, Washington, DC 20500",MR-2024-002,CIG-55443322
+Robert Johnson,07/04/1968,456-78-9012,(847) 555-0123,rjohnson@outlook.com,"2847 Oak Park Blvd, Evanston, IL 60201",MR-2024-003,MLF-44556677

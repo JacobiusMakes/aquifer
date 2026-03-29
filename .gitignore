@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Aquifer data (NEVER commit PHI or vaults)
+*.aqv
+*.aqf
+/data/
+
+# Generated test fixtures (regenerate with: python tests/generate_synthetic.py)
+tests/fixtures/synthetic/
+
+# macOS
+.DS_Store
+._*
+
+# Testing
+.pytest_cache/
+htmlcov/
+.coverage
+
+# Claude Code
+.claude/
+
+# Environment
+.env
+.env.local
+
+# Proprietary module (separate private repo)
+aquifer-claims/

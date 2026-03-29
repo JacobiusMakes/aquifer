@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Aquifer — QC Review{% endblock %}
+{% block content %}
+<div class="card">
+    <h2>QC Review: {{ file_record.original_filename }}</h2>
+    <p>Review low-confidence detections below. These items were flagged because the detection confidence is below the review threshold.</p>
+</div>
+
+{% if low_confidence_tokens %}
+<div class="card">
+    <h2>Low-Confidence Detections ({{ low_confidence_tokens | length }})</h2>
+    <table>
+        <thead><tr><th>Token ID</th><th>Type</th><th>Confidence</th><th>Action</th></tr></thead>
+        <tbody>
+        {% for t in low_confidence_tokens %}
+        <tr>
+            <td><code>{{ t.token_id[:12] }}...</code></td>
+            <td><span class="badge badge-{{ t.phi_type | lower }}">{{ t.phi_type }}</span></td>
+            <td>
+                <span class="confidence">
+                    <span class="confidence-fill confidence-low"
+                          style="width: {{ (t.confidence * 100) | int }}%"></span>
+                </span>
+                {{ "%.0f" | format(t.confidence * 100) }}%
+            </td>
+            <td>
+                <button class="btn btn-primary" onclick="alert('QC approval flow — coming in next release')">Approve</button>
+            </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="card">
+    <p>No low-confidence detections to review. All detections meet the confidence threshold.</p>
+</div>
+{% endif %}
+{% endblock %}

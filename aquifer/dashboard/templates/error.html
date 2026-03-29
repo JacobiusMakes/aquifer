@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Aquifer — Error{% endblock %}
+{% block content %}
+<div class="card">
+    <h2>{{ error }}</h2>
+    <p>{{ detail }}</p>
+    <a href="/" class="btn btn-primary">Back to Dashboard</a>
+</div>
+{% endblock %}

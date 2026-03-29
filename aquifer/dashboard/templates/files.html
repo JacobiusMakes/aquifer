@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Aquifer — Files{% endblock %}
+{% block content %}
+<div class="card">
+    <h2>Processed Files</h2>
+    {% if files %}
+    <table>
+        <thead><tr><th>Filename</th><th>Type</th><th>Tokens</th><th>Hash</th><th>Processed</th><th></th></tr></thead>
+        <tbody>
+        {% for f in files %}
+        <tr>
+            <td>{{ f.original_filename }}</td>
+            <td>{{ f.source_type }}</td>
+            <td>{{ f.token_count }}</td>
+            <td><code>{{ f.file_hash[:12] }}...</code></td>
+            <td>{{ f.processed_at }}</td>
+            <td><a href="/files/{{ f.file_hash }}" class="btn btn-primary">Details</a></td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p>No files processed yet. <a href="/upload">Upload a file</a> to get started.</p>
+    {% endif %}
+</div>
+{% endblock %}

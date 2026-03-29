@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Aquifer{% endblock %}</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: #f5f7fa; color: #1a1a2e; line-height: 1.6; }
+        .navbar { background: #1a1a2e; color: white; padding: 1rem 2rem; display: flex; align-items: center; gap: 2rem; }
+        .navbar h1 { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.02em; }
+        .navbar a { color: #a0aec0; text-decoration: none; font-size: 0.9rem; }
+        .navbar a:hover, .navbar a.active { color: white; }
+        .container { max-width: 1200px; margin: 2rem auto; padding: 0 2rem; }
+        .card { background: white; border-radius: 8px; padding: 1.5rem; margin-bottom: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .card h2 { font-size: 1.1rem; margin-bottom: 1rem; color: #2d3748; }
+        .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; }
+        .stat { text-align: center; }
+        .stat .value { font-size: 2rem; font-weight: 700; color: #1a1a2e; }
+        .stat .label { font-size: 0.85rem; color: #718096; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 0.75rem 1rem; text-align: left; border-bottom: 1px solid #e2e8f0; }
+        th { font-weight: 600; color: #4a5568; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; }
+        .badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.8rem; font-weight: 500; }
+        .badge-name { background: #ebf4ff; color: #2b6cb0; }
+        .badge-date { background: #fefcbf; color: #975a16; }
+        .badge-ssn { background: #fed7d7; color: #c53030; }
+        .badge-email { background: #c6f6d5; color: #276749; }
+        .badge-phone { background: #e9d8fd; color: #553c9a; }
+        .badge-ip { background: #bee3f8; color: #2a4365; }
+        .badge-other { background: #edf2f7; color: #4a5568; }
+        .confidence { display: inline-block; width: 60px; height: 6px; background: #e2e8f0; border-radius: 3px; }
+        .confidence-fill { height: 100%; border-radius: 3px; }
+        .confidence-high { background: #48bb78; }
+        .confidence-med { background: #ecc94b; }
+        .confidence-low { background: #f56565; }
+        .btn { display: inline-block; padding: 0.5rem 1rem; border: none; border-radius: 6px; cursor: pointer; font-size: 0.9rem; text-decoration: none; }
+        .btn-primary { background: #1a1a2e; color: white; }
+        .btn-primary:hover { background: #2d3748; }
+        .upload-form { border: 2px dashed #cbd5e0; border-radius: 8px; padding: 2rem; text-align: center; }
+        .flash { padding: 1rem; border-radius: 6px; margin-bottom: 1rem; }
+        .flash-success { background: #c6f6d5; color: #276749; }
+        .flash-error { background: #fed7d7; color: #c53030; }
+        .highlight { background: #fefcbf; padding: 0.1rem 0.3rem; border-radius: 3px; }
+    </style>
+</head>
+<body>
+    <nav class="navbar">
+        <h1>AQUIFER</h1>
+        <a href="/">Dashboard</a>
+        <a href="/files">Files</a>
+        <a href="/upload">Upload</a>
+    </nav>
+    <div class="container">
+        {% block content %}{% endblock %}
+    </div>
+</body>
+</html>
