@@ -1,0 +1,3 @@
+[submodule "aquifer-claims"]
+	path = aquifer-claims
+	url = https://github.com/JacobiusMakes/aquifer-claims.git

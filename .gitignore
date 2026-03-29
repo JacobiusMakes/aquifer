@@ -43,5 +43,5 @@ htmlcov/
 .env
 .env.local
 
-# Proprietary module (separate private repo)
-aquifer-claims/
+# Proprietary module (git submodule — requires private repo access)
+# aquifer-claims/ is tracked as a submodule, not ignored
