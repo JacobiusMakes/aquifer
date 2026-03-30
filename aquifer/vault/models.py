@@ -18,7 +18,8 @@ CREATE TABLE IF NOT EXISTS tokens (
     source_file_hash TEXT NOT NULL,
     aqf_file_hash TEXT,
     confidence REAL NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS files (
@@ -30,8 +31,40 @@ CREATE TABLE IF NOT EXISTS files (
     processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS sync_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    direction TEXT NOT NULL,
+    token_count INTEGER NOT NULL DEFAULT 0,
+    conflict_count INTEGER NOT NULL DEFAULT 0,
+    server_url TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'completed',
+    error_message TEXT,
+    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    completed_at TIMESTAMP
+);
+
 CREATE INDEX IF NOT EXISTS idx_tokens_source ON tokens(source_file_hash);
 CREATE INDEX IF NOT EXISTS idx_tokens_type ON tokens(phi_type);
+CREATE INDEX IF NOT EXISTS idx_tokens_updated ON tokens(updated_at);
+CREATE INDEX IF NOT EXISTS idx_sync_log_direction ON sync_log(direction);
+"""
+
+MIGRATION_V2_SQL = """
+-- Migration: add updated_at to tokens and sync_log table (v1 -> v2)
+ALTER TABLE tokens ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+CREATE TABLE IF NOT EXISTS sync_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    direction TEXT NOT NULL,
+    token_count INTEGER NOT NULL DEFAULT 0,
+    conflict_count INTEGER NOT NULL DEFAULT 0,
+    server_url TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'completed',
+    error_message TEXT,
+    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    completed_at TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_tokens_updated ON tokens(updated_at);
+CREATE INDEX IF NOT EXISTS idx_sync_log_direction ON sync_log(direction);
 """
 
 
@@ -63,6 +96,43 @@ def init_db(db_path: Path, salt: bytes) -> sqlite3.Connection:
     )
     conn.commit()
     return conn
+
+
+def ensure_schema_v2(conn: sqlite3.Connection) -> None:
+    """Migrate an existing vault to schema v2 (add sync support).
+
+    Safe to call on already-migrated vaults — uses IF NOT EXISTS / checks columns.
+    """
+    # Check if updated_at column exists on tokens
+    columns = [
+        row[1] for row in conn.execute("PRAGMA table_info(tokens)").fetchall()
+    ]
+    if "updated_at" not in columns:
+        conn.execute(
+            "ALTER TABLE tokens ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+        )
+    # Create sync_log if it doesn't exist
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS sync_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            direction TEXT NOT NULL,
+            token_count INTEGER NOT NULL DEFAULT 0,
+            conflict_count INTEGER NOT NULL DEFAULT 0,
+            server_url TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'completed',
+            error_message TEXT,
+            started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            completed_at TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_tokens_updated ON tokens(updated_at);
+        CREATE INDEX IF NOT EXISTS idx_sync_log_direction ON sync_log(direction);
+    """)
+    # Update version
+    conn.execute(
+        "INSERT OR REPLACE INTO vault_meta (key, value) VALUES (?, ?)",
+        ("version", "2"),
+    )
+    conn.commit()
 
 
 def get_salt(conn: sqlite3.Connection) -> bytes:

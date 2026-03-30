@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Optional
 
 from aquifer.vault.encryption import derive_key, encrypt_value, decrypt_value
-from aquifer.vault.models import get_connection, init_db, get_salt
+from aquifer.vault.models import get_connection, init_db, get_salt, ensure_schema_v2
 
 
 @dataclass
@@ -23,6 +23,7 @@ class VaultToken:
     aqf_file_hash: Optional[str]
     confidence: float
     created_at: Optional[str] = None
+    updated_at: Optional[str] = None
 
 
 class TokenVault:
@@ -80,8 +81,8 @@ class TokenVault:
         self._conn.execute(
             """INSERT OR REPLACE INTO tokens
             (token_id, phi_type, phi_value_encrypted, source_file_hash,
-             aqf_file_hash, confidence)
-            VALUES (?, ?, ?, ?, ?, ?)""",
+             aqf_file_hash, confidence, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)""",
             (token_id, phi_type, encrypted, source_file_hash,
              aqf_file_hash, confidence),
         )
@@ -100,8 +101,8 @@ class TokenVault:
         self._conn.executemany(
             """INSERT OR REPLACE INTO tokens
             (token_id, phi_type, phi_value_encrypted, source_file_hash,
-             aqf_file_hash, confidence)
-            VALUES (?, ?, ?, ?, ?, ?)""",
+             aqf_file_hash, confidence, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)""",
             encrypted_rows,
         )
         self._conn.commit()
@@ -122,6 +123,7 @@ class TokenVault:
             aqf_file_hash=row["aqf_file_hash"],
             confidence=row["confidence"],
             created_at=row["created_at"],
+            updated_at=row["updated_at"] if "updated_at" in row.keys() else None,
         )
 
     def get_tokens_for_file(self, source_file_hash: str) -> list[VaultToken]:
@@ -140,6 +142,7 @@ class TokenVault:
                 aqf_file_hash=r["aqf_file_hash"],
                 confidence=r["confidence"],
                 created_at=r["created_at"],
+                updated_at=r["updated_at"] if "updated_at" in r.keys() else None,
             )
             for r in rows
         ]
@@ -185,6 +188,146 @@ class TokenVault:
         self._ensure_open()
         rows = self._conn.execute("SELECT * FROM files ORDER BY processed_at DESC").fetchall()
         return [dict(r) for r in rows]
+
+    # --- Sync support ---
+
+    def ensure_sync_schema(self) -> None:
+        """Ensure the vault has sync-related tables/columns (v2 schema)."""
+        self._ensure_open()
+        ensure_schema_v2(self._conn)
+
+    def get_manifest(self) -> list[dict]:
+        """Generate a sync manifest: metadata for all tokens (NO PHI values).
+
+        Returns list of {token_id, phi_type, source_file_hash, updated_at}.
+        """
+        self._ensure_open()
+        rows = self._conn.execute(
+            "SELECT token_id, phi_type, source_file_hash, updated_at FROM tokens"
+        ).fetchall()
+        return [
+            {
+                "token_id": r["token_id"],
+                "phi_type": r["phi_type"],
+                "source_file_hash": r["source_file_hash"],
+                "updated_at": r["updated_at"],
+            }
+            for r in rows
+        ]
+
+    def export_tokens_encrypted(self, token_ids: list[str]) -> list[dict]:
+        """Export tokens with encrypted PHI values for sync transfer.
+
+        Returns list of {token_id, phi_type, phi_value_encrypted, source_file_hash,
+        aqf_file_hash, confidence, created_at, updated_at}.
+        PHI values remain encrypted with this vault's key.
+        """
+        self._ensure_open()
+        if not token_ids:
+            return []
+        placeholders = ",".join("?" for _ in token_ids)
+        rows = self._conn.execute(
+            f"SELECT * FROM tokens WHERE token_id IN ({placeholders})",
+            token_ids,
+        ).fetchall()
+        return [
+            {
+                "token_id": r["token_id"],
+                "phi_type": r["phi_type"],
+                "phi_value_encrypted": r["phi_value_encrypted"],
+                "source_file_hash": r["source_file_hash"],
+                "aqf_file_hash": r["aqf_file_hash"],
+                "confidence": r["confidence"],
+                "created_at": r["created_at"],
+                "updated_at": r["updated_at"] if "updated_at" in r.keys() else None,
+            }
+            for r in rows
+        ]
+
+    def import_token_raw(
+        self,
+        token_id: str,
+        phi_type: str,
+        phi_value_encrypted: str,
+        source_file_hash: str,
+        aqf_file_hash: str | None = None,
+        confidence: float = 1.0,
+        updated_at: str | None = None,
+    ) -> None:
+        """Import a token with an already-encrypted PHI value (for sync).
+
+        The encrypted value must be encrypted with THIS vault's key.
+        """
+        self._ensure_open()
+        ts = updated_at or "CURRENT_TIMESTAMP"
+        if updated_at:
+            self._conn.execute(
+                """INSERT OR REPLACE INTO tokens
+                (token_id, phi_type, phi_value_encrypted, source_file_hash,
+                 aqf_file_hash, confidence, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (token_id, phi_type, phi_value_encrypted, source_file_hash,
+                 aqf_file_hash, confidence, updated_at),
+            )
+        else:
+            self._conn.execute(
+                """INSERT OR REPLACE INTO tokens
+                (token_id, phi_type, phi_value_encrypted, source_file_hash,
+                 aqf_file_hash, confidence, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)""",
+                (token_id, phi_type, phi_value_encrypted, source_file_hash,
+                 aqf_file_hash, confidence),
+            )
+        self._conn.commit()
+
+    def log_sync(
+        self,
+        direction: str,
+        token_count: int,
+        server_url: str,
+        status: str = "completed",
+        conflict_count: int = 0,
+        error_message: str | None = None,
+    ) -> None:
+        """Record a sync operation in the sync log."""
+        self._ensure_open()
+        self._conn.execute(
+            """INSERT INTO sync_log
+            (direction, token_count, conflict_count, server_url, status,
+             error_message, completed_at)
+            VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)""",
+            (direction, token_count, conflict_count, server_url, status, error_message),
+        )
+        self._conn.commit()
+
+    def get_sync_history(self, limit: int = 20) -> list[dict]:
+        """Get recent sync log entries."""
+        self._ensure_open()
+        rows = self._conn.execute(
+            "SELECT * FROM sync_log ORDER BY started_at DESC LIMIT ?", (limit,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_last_sync(self, server_url: str | None = None) -> dict | None:
+        """Get the most recent successful sync entry."""
+        self._ensure_open()
+        if server_url:
+            row = self._conn.execute(
+                "SELECT * FROM sync_log WHERE status = 'completed' AND server_url = ? "
+                "ORDER BY completed_at DESC, id DESC LIMIT 1",
+                (server_url,),
+            ).fetchone()
+        else:
+            row = self._conn.execute(
+                "SELECT * FROM sync_log WHERE status = 'completed' "
+                "ORDER BY completed_at DESC, id DESC LIMIT 1"
+            ).fetchone()
+        return dict(row) if row else None
+
+    @property
+    def encryption_key(self) -> bytes | None:
+        """Expose the vault encryption key (needed for sync re-encryption)."""
+        return self._key
 
     def get_stats(self) -> dict:
         """Get vault statistics."""

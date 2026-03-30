@@ -1,0 +1,67 @@
+# =============================================================================
+# Aquifer — Development Docker Compose Override
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+#
+# This override enables:
+#   - Debug mode (auto-generates secrets, verbose logging, CORS open)
+#   - Source code mounted for hot-reload (edit locally, see changes immediately)
+#   - Additional ports exposed for debugging
+#   - Relaxed resource limits
+# =============================================================================
+
+services:
+  aquifer-server:
+    # Rebuild on every up to pick up dependency changes
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    environment:
+      # Enable debug mode — auto-generates secrets if not provided,
+      # enables verbose request logging, opens CORS to all origins.
+      - AQUIFER_DEBUG=true
+      # Auto-generated secrets for local development (override entrypoint defaults)
+      - AQUIFER_MASTER_KEY=${AQUIFER_MASTER_KEY:-DEV-AUTO-GENERATED-KEY}
+      - AQUIFER_JWT_SECRET=${AQUIFER_JWT_SECRET:-DEV-AUTO-GENERATED-SECRET}
+      - AQUIFER_DATA_DIR=/data/strata
+      - AQUIFER_HOST=0.0.0.0
+      - AQUIFER_PORT=8443
+
+    # Mount source code for live editing.
+    # Changes to aquifer/ are reflected immediately (uvicorn reload in debug mode).
+    volumes:
+      - strata_data:/data/strata
+      - ./aquifer:/app/aquifer:ro
+
+    ports:
+      - "8443:8443"
+      # Additional port for debugging tools (e.g., debugpy remote attach)
+      - "5678:5678"
+
+    # Override the entrypoint to run uvicorn with auto-reload
+    command: >
+      python -m uvicorn aquifer.strata.server:app
+      --host 0.0.0.0
+      --port 8443
+      --reload
+      --reload-dir /app/aquifer
+
+    # Faster health check cycle for development
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8443/api/v1/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+    # No resource limits in dev
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+
+volumes:
+  strata_data:
+    driver: local

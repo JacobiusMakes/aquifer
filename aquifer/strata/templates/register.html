@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Aquifer — Register{% endblock %}
+{% block content %}
+<div class="card">
+    <h1>Create your account</h1>
+    <p class="subtitle">Set up Aquifer for your practice</p>
+
+    {% if error %}
+    <div class="flash flash-error">{{ error }}</div>
+    {% endif %}
+
+    <form method="post" action="/dashboard/register">
+        <div class="form-group">
+            <label for="practice_name">Practice Name</label>
+            <input type="text" name="practice_name" id="practice_name" required
+                   value="{{ practice_name or '' }}" placeholder="Smile Dental Group">
+        </div>
+        <div class="form-group">
+            <label for="email">Email</label>
+            <input type="email" name="email" id="email" required autocomplete="email"
+                   value="{{ email or '' }}" placeholder="admin@practice.com">
+        </div>
+        <div class="form-group">
+            <label for="password">Password</label>
+            <input type="password" name="password" id="password" required minlength="8"
+                   autocomplete="new-password" placeholder="Minimum 8 characters">
+        </div>
+        <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;">Create Account</button>
+    </form>
+
+    <div class="alt-link">
+        Already have an account? <a href="/dashboard/login">Sign in</a>
+    </div>
+</div>
+{% endblock %}

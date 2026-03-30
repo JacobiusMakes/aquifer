@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% block title %}Aquifer — Upload{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>Upload Files</h1>
+    <p>De-identify medical and dental files. All PHI is detected, tokenized, and secured in your vault.</p>
+</div>
+
+<div class="card">
+    <div class="upload-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
+        <div class="icon">+</div>
+        <div class="text">
+            <strong>Click to browse</strong> or drag and drop files here
+        </div>
+        <div style="color:var(--text-light);font-size:0.8rem;margin-top:0.5rem;">
+            PDF, DOCX, TXT, CSV, JSON, XML, JPG, PNG, TIFF — up to 100 MB
+        </div>
+    </div>
+
+    <form id="uploadForm" method="post" action="/dashboard/upload" enctype="multipart/form-data" style="display:none;">
+        <input type="file" name="files" id="fileInput" multiple
+               accept=".pdf,.docx,.doc,.txt,.csv,.json,.xml,.jpg,.jpeg,.png,.tiff,.tif,.bmp">
+    </form>
+
+    <div id="fileList" style="margin-top:1rem;"></div>
+    <div id="uploadProgress" style="display:none;margin-top:1rem;">
+        <div style="display:flex;justify-content:space-between;margin-bottom:0.5rem;">
+            <span id="progressText">Uploading...</span>
+            <span id="progressPct">0%</span>
+        </div>
+        <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
+    </div>
+    <div id="uploadResults" style="margin-top:1rem;"></div>
+</div>
+
+<div class="card">
+    <h2>Supported Formats</h2>
+    <table>
+        <thead><tr><th>Format</th><th>Extensions</th><th>Detection</th></tr></thead>
+        <tbody>
+            <tr><td>PDF Documents</td><td>.pdf</td><td>Text extraction + pattern matching + NER</td></tr>
+            <tr><td>Word Documents</td><td>.docx</td><td>Text extraction + pattern matching + NER</td></tr>
+            <tr><td>Plain Text / Notes</td><td>.txt</td><td>Pattern matching + NER</td></tr>
+            <tr><td>Structured Data</td><td>.csv, .json, .xml</td><td>Cell/value extraction + pattern matching</td></tr>
+            <tr><td>Scanned Images</td><td>.jpg, .png, .tiff</td><td>OCR + pattern matching + NER</td></tr>
+        </tbody>
+    </table>
+</div>
+
+<script>
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+const fileList = document.getElementById('fileList');
+const progress = document.getElementById('uploadProgress');
+const progressFill = document.getElementById('progressFill');
+const progressText = document.getElementById('progressText');
+const progressPct = document.getElementById('progressPct');
+const results = document.getElementById('uploadResults');
+
+// Drag and drop
+['dragenter', 'dragover'].forEach(e => {
+    dropZone.addEventListener(e, ev => { ev.preventDefault(); dropZone.classList.add('dragover'); });
+});
+['dragleave', 'drop'].forEach(e => {
+    dropZone.addEventListener(e, ev => { ev.preventDefault(); dropZone.classList.remove('dragover'); });
+});
+dropZone.addEventListener('drop', ev => {
+    fileInput.files = ev.dataTransfer.files;
+    handleFiles(ev.dataTransfer.files);
+});
+fileInput.addEventListener('change', () => handleFiles(fileInput.files));
+
+function handleFiles(files) {
+    if (!files.length) return;
+    fileList.innerHTML = Array.from(files).map(f =>
+        `<div style="display:flex;justify-content:space-between;padding:0.4rem 0;border-bottom:1px solid var(--border);">
+            <span>${f.name}</span>
+            <span style="color:var(--text-muted)">${(f.size/1024).toFixed(1)} KB</span>
+        </div>`
+    ).join('');
+    uploadFiles(files);
+}
+
+async function uploadFiles(files) {
+    progress.style.display = 'block';
+    results.innerHTML = '';
+    let completed = 0;
+    const total = files.length;
+    const outcomes = [];
+
+    for (const file of files) {
+        progressText.textContent = `Processing ${file.name}...`;
+        const formData = new FormData();
+        formData.append('file', file);
+
+        try {
+            const resp = await fetch('/dashboard/upload', { method: 'POST', body: formData });
+            const data = await resp.json();
+            if (resp.ok) {
+                outcomes.push({ name: file.name, ok: true, data });
+            } else {
+                outcomes.push({ name: file.name, ok: false, error: data.detail || data.error || 'Failed' });
+            }
+        } catch (e) {
+            outcomes.push({ name: file.name, ok: false, error: e.message });
+        }
+        completed++;
+        const pct = Math.round((completed / total) * 100);
+        progressFill.style.width = pct + '%';
+        progressPct.textContent = pct + '%';
+    }
+
+    progressText.textContent = `Done: ${outcomes.filter(o=>o.ok).length}/${total} succeeded`;
+    results.innerHTML = outcomes.map(o => {
+        if (o.ok) {
+            return `<div class="flash flash-success">
+                <strong>${o.name}</strong> — ${o.data.token_count} PHI tokens detected
+                <a href="/dashboard/files/${o.data.file_id}" style="float:right;">View</a>
+            </div>`;
+        } else {
+            return `<div class="flash flash-error"><strong>${o.name}</strong> — ${o.error}</div>`;
+        }
+    }).join('');
+}
+</script>
+{% endblock %}

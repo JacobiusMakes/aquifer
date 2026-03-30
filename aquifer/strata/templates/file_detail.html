@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% block title %}Aquifer — {{ file.original_filename }}{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>{{ file.original_filename }}</h1>
+    <p>
+        <span class="badge badge-{{ file.status }}">{{ file.status }}</span>
+        <span class="mono" style="color:var(--text-muted);margin-left:0.5rem;">{{ file.source_type }}</span>
+    </p>
+</div>
+
+<div class="card-grid" style="grid-template-columns:repeat(4,1fr);">
+    <div class="card stat-card">
+        <div class="value">{{ file.token_count }}</div>
+        <div class="label">PHI Tokens</div>
+    </div>
+    <div class="card stat-card">
+        <div class="value">{{ "%.1f"|format(file.file_size_bytes / 1024) }}</div>
+        <div class="label">Size (KB)</div>
+    </div>
+    <div class="card stat-card">
+        <div class="value">{{ file.created_at[:10] }}</div>
+        <div class="label">Processed</div>
+    </div>
+    <div class="card stat-card">
+        <div class="value" style="font-size:1rem;color:{{ 'var(--success)' if integrity_valid else 'var(--danger)' }}">
+            {{ "VALID" if integrity_valid else "INVALID" }}
+        </div>
+        <div class="label">Integrity</div>
+    </div>
+</div>
+
+<div class="card">
+    <h2>Actions</h2>
+    <div style="display:flex;gap:1rem;flex-wrap:wrap;">
+        <a href="/dashboard/files/{{ file.id }}/download" class="btn btn-accent">Download .aqf</a>
+        {% if session.role == 'admin' %}
+        <button class="btn btn-danger" id="rehydrateBtn"
+                onclick="rehydrate('{{ file.id }}')">Rehydrate (Restore PHI)</button>
+        {% endif %}
+        <a href="/dashboard/files" class="btn btn-outline">Back to Files</a>
+    </div>
+</div>
+
+{% if tokens %}
+<div class="card">
+    <h2>Detected PHI Tokens ({{ tokens | length }})</h2>
+    <table>
+        <thead><tr><th>Token ID</th><th>PHI Type</th><th>Confidence</th></tr></thead>
+        <tbody>
+        {% for t in tokens %}
+        <tr>
+            <td><code class="mono">{{ t.token_id[:12] }}...</code></td>
+            <td><span class="badge badge-{{ t.phi_type | lower }}">{{ t.phi_type }}</span></td>
+            <td>
+                <div class="progress-bar" style="width:80px;display:inline-block;vertical-align:middle;">
+                    <div class="progress-fill" style="width:{{ (t.confidence * 100)|int }}%;
+                        background:{{ 'var(--success)' if t.confidence >= 0.8 else ('var(--warning)' if t.confidence >= 0.5 else 'var(--danger)') }};"></div>
+                </div>
+                <span style="font-size:0.8rem;color:var(--text-muted);margin-left:0.3rem;">{{ "%.0f"|format(t.confidence * 100) }}%</span>
+            </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+{% if metadata %}
+<div class="card">
+    <h2>Document Metadata</h2>
+    <table>
+        <tbody>
+        {% for key, value in metadata.items() %}
+        {% if value %}
+        <tr>
+            <td style="font-weight:600;width:200px;">{{ key }}</td>
+            <td>{{ value if value is string else value | join(', ') }}</td>
+        </tr>
+        {% endif %}
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+<div id="rehydrateResult" style="display:none;" class="card">
+    <h2>Rehydrated Content (contains PHI)</h2>
+    <div style="background:#fff8f0;border:2px solid var(--warning);border-radius:6px;padding:0.75rem;margin-bottom:1rem;font-size:0.85rem;">
+        This content contains original Protected Health Information. Handle per HIPAA requirements.
+    </div>
+    <pre id="rehydrateText" style="background:var(--bg);padding:1rem;border-radius:6px;white-space:pre-wrap;font-size:0.85rem;max-height:500px;overflow:auto;"></pre>
+</div>
+
+<script>
+async function rehydrate(fileId) {
+    const btn = document.getElementById('rehydrateBtn');
+    btn.disabled = true;
+    btn.textContent = 'Rehydrating...';
+    try {
+        const resp = await fetch(`/dashboard/files/${fileId}/rehydrate`, { method: 'POST' });
+        if (resp.ok) {
+            const text = await resp.text();
+            document.getElementById('rehydrateText').textContent = text;
+            document.getElementById('rehydrateResult').style.display = 'block';
+            btn.textContent = 'Rehydrated';
+        } else {
+            const data = await resp.json();
+            alert('Rehydration failed: ' + (data.error || 'Unknown error'));
+            btn.disabled = false;
+            btn.textContent = 'Rehydrate (Restore PHI)';
+        }
+    } catch (e) {
+        alert('Error: ' + e.message);
+        btn.disabled = false;
+        btn.textContent = 'Rehydrate (Restore PHI)';
+    }
+}
+</script>
+{% endblock %}

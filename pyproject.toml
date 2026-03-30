@@ -3,18 +3,26 @@ name = "aquifer"
 version = "0.1.0"
 description = "HIPAA de-identification engine with portable medical data format"
 requires-python = ">=3.11"
-license = {text = "Apache-2.0"}
+license = "Apache-2.0"
 readme = "README.md"
+authors = [
+    {name = "Aquifer Health", email = "hello@aquifer.health"},
+]
+maintainers = [
+    {name = "Aquifer Health", email = "hello@aquifer.health"},
+]
 keywords = ["hipaa", "phi", "de-identification", "medical", "dental", "healthcare"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Healthcare Industry",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Medical Science Apps.",
+    "Typing :: Typed",
 ]
 
 dependencies = [
@@ -34,20 +42,41 @@ dependencies = [
 [project.optional-dependencies]
 ner = ["spacy>=3.7"]
 ocr = ["pytesseract>=0.3"]
-all = ["spacy>=3.7", "pytesseract>=0.3"]
-dev = ["pytest>=8.0", "pytest-asyncio", "httpx", "spacy>=3.7"]
+server = []  # Reserved for Strata hosted-API dependencies
+all = ["aquifer[ner]", "aquifer[ocr]"]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio",
+    "httpx",
+    "spacy>=3.7",
+    "build>=1.0",
+    "twine>=5.0",
+]
 
 [project.scripts]
 aquifer = "aquifer.cli:cli"
 
 [project.urls]
+Homepage = "https://github.com/aquifer-health/aquifer"
 Documentation = "https://github.com/aquifer-health/aquifer#readme"
+Changelog = "https://github.com/aquifer-health/aquifer/releases"
 Issues = "https://github.com/aquifer-health/aquifer/issues"
 Source = "https://github.com/aquifer-health/aquifer"
 
 [build-system]
-requires = ["setuptools>=68.0"]
+requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["aquifer", "aquifer.*"]
+exclude = ["tests*", "aquifer-claims*"]
+
+[tool.setuptools.package-data]
+aquifer = [
+    "dashboard/templates/*.html",
+    "dashboard/static/**/*",
+    "py.typed",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

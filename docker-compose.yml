@@ -1,0 +1,94 @@
+# =============================================================================
+# Aquifer — Production Docker Compose
+#
+# Usage:
+#   docker compose up -d                 # Start all services
+#   docker compose logs -f aquifer-server # Follow server logs
+#   docker compose down                  # Stop all services
+#
+# Before first run, set your secrets:
+#   export AQUIFER_MASTER_KEY=$(python -c "import secrets; print(secrets.token_urlsafe(32))")
+#   export AQUIFER_JWT_SECRET=$(python -c "import secrets; print(secrets.token_urlsafe(32))")
+#
+# Or create a .env file (never commit it!):
+#   AQUIFER_MASTER_KEY=your-key-here
+#   AQUIFER_JWT_SECRET=your-secret-here
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # Aquifer Strata API Server
+  # The core HIPAA de-identification API with cloud vault storage.
+  # ---------------------------------------------------------------------------
+  aquifer-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: aquifer-server
+    restart: unless-stopped
+
+    # Environment configuration
+    # Required secrets are passed from host env or .env file.
+    # The entrypoint script will auto-generate them if not set (with a warning).
+    environment:
+      - AQUIFER_MASTER_KEY=${AQUIFER_MASTER_KEY:-}
+      - AQUIFER_JWT_SECRET=${AQUIFER_JWT_SECRET:-}
+      - AQUIFER_DATA_DIR=/data/strata
+      - AQUIFER_DEBUG=${AQUIFER_DEBUG:-false}
+      - AQUIFER_HOST=0.0.0.0
+      - AQUIFER_PORT=8443
+
+    # Port mapping: host 8443 -> container 8443
+    ports:
+      - "8443:8443"
+
+    # Persistent storage for practice vaults, .aqf files, and the metadata DB.
+    # This volume survives container restarts and rebuilds.
+    volumes:
+      - strata_data:/data/strata
+
+    # Health check mirrors the Dockerfile HEALTHCHECK but can be tuned per-compose
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8443/api/v1/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+    # Resource limits (adjust for your deployment)
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+
+  # ---------------------------------------------------------------------------
+  # Aquifer QC Dashboard (optional)
+  # Web-based quality control dashboard for reviewing de-identified output.
+  # Uncomment to enable.
+  # ---------------------------------------------------------------------------
+  # aquifer-dashboard:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #   container_name: aquifer-dashboard
+  #   restart: unless-stopped
+  #   command: ["python", "-m", "aquifer", "dashboard", "--vault", "/data/vault/aquifer.aqv", "--host", "0.0.0.0", "--port", "8080"]
+  #   ports:
+  #     - "8080:8080"
+  #   volumes:
+  #     - strata_data:/data/vault:ro
+  #   depends_on:
+  #     aquifer-server:
+  #       condition: service_healthy
+
+# ---------------------------------------------------------------------------
+# Named volumes
+# ---------------------------------------------------------------------------
+volumes:
+  # Persistent storage for all Strata data:
+  #   - strata.db (metadata database)
+  #   - practices/ (per-practice vault files and .aqf output)
+  strata_data:
+    driver: local

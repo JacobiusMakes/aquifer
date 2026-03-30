@@ -11,7 +11,7 @@ import click
 
 
 @click.group()
-@click.version_option(version="0.1.0", prog_name="aquifer")
+@click.version_option(package_name="aquifer", prog_name="aquifer")
 def cli():
     """Aquifer — HIPAA De-Identification Engine."""
     pass
@@ -231,6 +231,215 @@ def vault_stats(vault_path: str, password: str | None):
         v.close()
 
 
+# ---------------------------------------------------------------------------
+# Vault sync commands
+# ---------------------------------------------------------------------------
+
+_DEFAULT_SERVER_URL = "https://api.aquifer.health"
+
+
+def _get_server_url(server: str | None) -> str:
+    """Resolve server URL from argument, env var, or default."""
+    import os
+    if server:
+        return server
+    return os.environ.get("AQUIFER_SERVER_URL", _DEFAULT_SERVER_URL)
+
+
+def _sync_progress(step: str, current: int, total: int) -> None:
+    """Print sync progress to stderr."""
+    messages = {
+        "generating_manifest": "Generating token manifest...",
+        "computing_diff": f"Computing diff ({total} local tokens)...",
+        "pushing": f"Pushing tokens... ({current}/{total})",
+        "push_complete": f"Push complete: {current} tokens pushed.",
+        "pulling": f"Pulling tokens... ({current}/{total})",
+        "pull_complete": f"Pull complete: {current} tokens pulled.",
+        "sync_complete": f"Sync complete: {current} tokens transferred.",
+    }
+    msg = messages.get(step, f"{step}: {current}/{total}")
+    click.echo(f"  {msg}")
+
+
+@vault.command("sync")
+@click.argument("vault_path", type=click.Path(exists=True))
+@click.option("--password", "password", default=None,
+              help="Vault password (will prompt if not given)")
+@click.option("--api-key", envvar="AQUIFER_API_KEY", required=True,
+              help="API key for Strata server (or set AQUIFER_API_KEY)")
+@click.option("--server", "server_url", envvar="AQUIFER_SERVER_URL", default=None,
+              help="Strata server URL (or set AQUIFER_SERVER_URL)")
+def vault_sync(vault_path: str, password: str | None, api_key: str, server_url: str | None):
+    """Bidirectional sync between local vault and cloud."""
+    from aquifer.vault.store import TokenVault
+    from aquifer.vault.sync_client import VaultSyncClient
+
+    if password is None:
+        password = getpass.getpass("Vault password: ")
+
+    url = _get_server_url(server_url)
+    v = TokenVault(Path(vault_path), password)
+    v.open()
+
+    try:
+        click.echo(f"Syncing vault with {url}...")
+        client = VaultSyncClient(url, api_key)
+        result = client.sync(v, progress=_sync_progress)
+
+        if result.status == "completed":
+            click.echo(f"\nSync completed successfully:")
+            click.echo(f"  Pushed: {result.pushed} tokens")
+            click.echo(f"  Pulled: {result.pulled} tokens")
+            if result.conflicts:
+                click.echo(f"  Conflicts resolved: {result.conflicts} (last-write-wins)")
+        else:
+            click.echo(f"\nSync failed: {result.error}", err=True)
+            sys.exit(1)
+    finally:
+        v.close()
+
+
+@vault.command("push")
+@click.argument("vault_path", type=click.Path(exists=True))
+@click.option("--password", "password", default=None,
+              help="Vault password (will prompt if not given)")
+@click.option("--api-key", envvar="AQUIFER_API_KEY", required=True,
+              help="API key for Strata server (or set AQUIFER_API_KEY)")
+@click.option("--server", "server_url", envvar="AQUIFER_SERVER_URL", default=None,
+              help="Strata server URL (or set AQUIFER_SERVER_URL)")
+def vault_push(vault_path: str, password: str | None, api_key: str, server_url: str | None):
+    """Push local vault tokens to cloud."""
+    from aquifer.vault.store import TokenVault
+    from aquifer.vault.sync_client import VaultSyncClient
+
+    if password is None:
+        password = getpass.getpass("Vault password: ")
+
+    url = _get_server_url(server_url)
+    v = TokenVault(Path(vault_path), password)
+    v.open()
+
+    try:
+        click.echo(f"Pushing to {url}...")
+        client = VaultSyncClient(url, api_key)
+        result = client.push(v, progress=_sync_progress)
+
+        if result.status == "completed":
+            click.echo(f"\nPush completed: {result.pushed} tokens pushed.")
+            if result.conflicts:
+                click.echo(f"  Conflicts: {result.conflicts} (resolved by last-write-wins)")
+        else:
+            click.echo(f"\nPush failed: {result.error}", err=True)
+            sys.exit(1)
+    finally:
+        v.close()
+
+
+@vault.command("pull")
+@click.argument("vault_path", type=click.Path(exists=True))
+@click.option("--password", "password", default=None,
+              help="Vault password (will prompt if not given)")
+@click.option("--api-key", envvar="AQUIFER_API_KEY", required=True,
+              help="API key for Strata server (or set AQUIFER_API_KEY)")
+@click.option("--server", "server_url", envvar="AQUIFER_SERVER_URL", default=None,
+              help="Strata server URL (or set AQUIFER_SERVER_URL)")
+def vault_pull(vault_path: str, password: str | None, api_key: str, server_url: str | None):
+    """Pull cloud vault tokens to local."""
+    from aquifer.vault.store import TokenVault
+    from aquifer.vault.sync_client import VaultSyncClient
+
+    if password is None:
+        password = getpass.getpass("Vault password: ")
+
+    url = _get_server_url(server_url)
+    v = TokenVault(Path(vault_path), password)
+    v.open()
+
+    try:
+        click.echo(f"Pulling from {url}...")
+        client = VaultSyncClient(url, api_key)
+        result = client.pull(v, progress=_sync_progress)
+
+        if result.status == "completed":
+            click.echo(f"\nPull completed: {result.pulled} tokens pulled.")
+            if result.conflicts:
+                click.echo(f"  Conflicts: {result.conflicts} (resolved by last-write-wins)")
+        else:
+            click.echo(f"\nPull failed: {result.error}", err=True)
+            sys.exit(1)
+    finally:
+        v.close()
+
+
+@vault.command("sync-status")
+@click.argument("vault_path", type=click.Path(exists=True))
+@click.option("--password", "password", default=None,
+              help="Vault password (will prompt if not given)")
+@click.option("--api-key", envvar="AQUIFER_API_KEY", required=True,
+              help="API key for Strata server (or set AQUIFER_API_KEY)")
+@click.option("--server", "server_url", envvar="AQUIFER_SERVER_URL", default=None,
+              help="Strata server URL (or set AQUIFER_SERVER_URL)")
+def vault_sync_status(vault_path: str, password: str | None, api_key: str, server_url: str | None):
+    """Show sync status (local + cloud)."""
+    from aquifer.vault.store import TokenVault
+    from aquifer.vault.sync_client import VaultSyncClient
+
+    if password is None:
+        password = getpass.getpass("Vault password: ")
+
+    url = _get_server_url(server_url)
+    v = TokenVault(Path(vault_path), password)
+    v.open()
+
+    try:
+        v.ensure_sync_schema()
+
+        # Local sync history
+        local_stats = v.get_stats()
+        last_sync = v.get_last_sync(url)
+        sync_history = v.get_sync_history(limit=5)
+
+        click.echo(f"Local vault: {vault_path}")
+        click.echo(f"  Tokens: {local_stats['total_tokens']}")
+        click.echo(f"  Files: {local_stats['total_files']}")
+
+        if last_sync:
+            click.echo(f"\nLast sync with {url}:")
+            click.echo(f"  Direction: {last_sync['direction']}")
+            click.echo(f"  Tokens: {last_sync['token_count']}")
+            click.echo(f"  Conflicts: {last_sync['conflict_count']}")
+            click.echo(f"  Status: {last_sync['status']}")
+            click.echo(f"  Completed: {last_sync['completed_at']}")
+        else:
+            click.echo(f"\nNo sync history with {url}")
+
+        if sync_history:
+            click.echo(f"\nRecent sync log:")
+            for entry in sync_history:
+                click.echo(
+                    f"  [{entry['completed_at'] or entry['started_at']}] "
+                    f"{entry['direction']}: {entry['token_count']} tokens, "
+                    f"{entry['status']}"
+                )
+
+        # Server-side status
+        try:
+            client = VaultSyncClient(url, api_key)
+            server_status = client.get_status()
+            click.echo(f"\nCloud vault ({url}):")
+            click.echo(f"  Tokens: {server_status['total_tokens']}")
+            click.echo(f"  Files: {server_status['total_files']}")
+            if server_status.get("last_sync"):
+                ls = server_status["last_sync"]
+                click.echo(f"  Last sync: {ls['direction']} ({ls['token_count']} tokens, "
+                           f"{ls['completed_at']})")
+        except Exception as e:
+            click.echo(f"\nCould not reach server: {e}")
+
+    finally:
+        v.close()
+
+
 @cli.command()
 @click.option("--vault", "vault_path", type=click.Path(exists=True), required=True,
               help="Path to vault database file")
@@ -287,6 +496,49 @@ def license():
     else:
         click.echo(f"File limit: unlimited")
     click.echo(f"Features: {', '.join(sorted(lic.features))}")
+
+
+# ---------------------------------------------------------------------------
+# Strata server
+# ---------------------------------------------------------------------------
+
+@cli.command()
+@click.option("--host", default=None, help="Host to bind to (default: 0.0.0.0)")
+@click.option("--port", default=None, type=int, help="Port (default: 8443)")
+@click.option("--debug", is_flag=True, help="Debug mode (auto-generates secrets, verbose logging)")
+@click.option("--data-dir", default=None, type=click.Path(),
+              help="Data directory for vaults and files")
+def server(host: str | None, port: int | None, debug: bool, data_dir: str | None):
+    """Start the Aquifer Strata API server (hosted mode)."""
+    import os
+    import uvicorn
+    from aquifer.strata.config import StrataConfig
+
+    if debug:
+        os.environ.setdefault("AQUIFER_DEBUG", "1")
+        logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
+
+    if data_dir:
+        os.environ["AQUIFER_DATA_DIR"] = data_dir
+    if host:
+        os.environ["AQUIFER_HOST"] = host
+    if port:
+        os.environ["AQUIFER_PORT"] = str(port)
+
+    config = StrataConfig.from_env()
+    run_host = host or config.host
+    run_port = port or config.port
+
+    click.echo(f"Starting Aquifer Strata server")
+    click.echo(f"  Bind: {run_host}:{run_port}")
+    click.echo(f"  Data: {config.data_dir}")
+    click.echo(f"  Debug: {config.debug}")
+    if config.debug:
+        click.echo(f"  Docs: http://{run_host}:{run_port}/docs")
+
+    from aquifer.strata.server import create_app
+    app = create_app(config)
+    uvicorn.run(app, host=run_host, port=run_port)
 
 
 # ---------------------------------------------------------------------------

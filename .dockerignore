@@ -1,14 +1,59 @@
+# =============================================================================
+# Docker build context exclusions
+# =============================================================================
+
+# Version control
+.git
+.gitmodules
+.gitignore
+
+# Python artifacts
 __pycache__
 *.pyc
 *.pyo
-.pytest_cache
-.git
-.claude
 *.egg-info
 dist
 build
+
+# Testing and development
+.pytest_cache
+tests/
+.coverage
+htmlcov/
+.mypy_cache/
+
+# Documentation (not needed in image)
+docs/
+
+# Environment and secrets (NEVER ship these in the image)
 .env
+.env.*
+*.env
+
+# Proprietary submodule — excluded from open-source image
+aquifer-claims/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Claude Code / AI tooling
+.claude/
+
+# Existing data (should use mounted volumes, not baked into image)
+strata_data/
 *.aqv
 *.aqf
-tests/
-docs/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+demo.sh
+CONTRIBUTING.md
+STARTME.txt
+MANIFEST.in

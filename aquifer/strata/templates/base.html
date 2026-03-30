@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Aquifer{% endblock %}</title>
+    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+    <style>
+        :root {
+            --bg: #f5f7fa; --surface: #ffffff; --border: #e2e8f0;
+            --text: #1a1a2e; --text-muted: #718096; --text-light: #a0aec0;
+            --primary: #1a1a2e; --primary-hover: #2d3748;
+            --accent: #3182ce; --accent-hover: #2b6cb0;
+            --success: #48bb78; --warning: #ecc94b; --danger: #f56565;
+            --radius: 8px; --shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; }
+
+        /* Navbar */
+        .navbar { background: var(--primary); color: white; padding: 0 2rem; display: flex; align-items: center; height: 56px; }
+        .navbar .brand { font-size: 1.25rem; font-weight: 700; letter-spacing: 0.05em; margin-right: 2rem; text-decoration: none; color: white; }
+        .navbar .nav-links { display: flex; gap: 0.25rem; flex: 1; }
+        .navbar .nav-links a { color: var(--text-light); text-decoration: none; font-size: 0.875rem; padding: 0.5rem 0.75rem; border-radius: 6px; transition: all 0.15s; }
+        .navbar .nav-links a:hover { color: white; background: rgba(255,255,255,0.1); }
+        .navbar .nav-links a.active { color: white; background: rgba(255,255,255,0.15); }
+        .navbar .nav-right { display: flex; align-items: center; gap: 1rem; }
+        .navbar .nav-right .tier { font-size: 0.75rem; padding: 0.2rem 0.6rem; border-radius: 4px; background: rgba(255,255,255,0.15); color: var(--text-light); text-transform: uppercase; letter-spacing: 0.05em; }
+        .navbar .nav-right a { color: var(--text-light); text-decoration: none; font-size: 0.875rem; }
+        .navbar .nav-right a:hover { color: white; }
+
+        /* Layout */
+        .container { max-width: 1200px; margin: 0 auto; padding: 2rem; }
+        .page-header { margin-bottom: 1.5rem; }
+        .page-header h1 { font-size: 1.5rem; font-weight: 700; }
+        .page-header p { color: var(--text-muted); font-size: 0.9rem; }
+
+        /* Cards */
+        .card { background: var(--surface); border-radius: var(--radius); padding: 1.5rem; margin-bottom: 1.5rem; box-shadow: var(--shadow); }
+        .card h2 { font-size: 1.1rem; margin-bottom: 1rem; color: var(--text); }
+        .card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; }
+
+        /* Stats */
+        .stat-card { text-align: center; padding: 1.25rem; }
+        .stat-card .value { font-size: 2.25rem; font-weight: 700; color: var(--primary); line-height: 1.2; }
+        .stat-card .label { font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem; }
+
+        /* Tables */
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 0.75rem 1rem; text-align: left; border-bottom: 1px solid var(--border); }
+        th { font-weight: 600; color: var(--text-muted); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; }
+        tr:hover { background: #f7fafc; }
+        .mono { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.85rem; }
+
+        /* Badges */
+        .badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; }
+        .badge-name { background: #ebf4ff; color: #2b6cb0; }
+        .badge-date { background: #fefcbf; color: #975a16; }
+        .badge-ssn { background: #fed7d7; color: #c53030; }
+        .badge-email { background: #c6f6d5; color: #276749; }
+        .badge-phone { background: #e9d8fd; color: #553c9a; }
+        .badge-address { background: #fed7e2; color: #97266d; }
+        .badge-npi { background: #bee3f8; color: #2a4365; }
+        .badge-mrn { background: #feebc8; color: #7b341e; }
+        .badge-completed { background: #c6f6d5; color: #276749; }
+        .badge-processing { background: #fefcbf; color: #975a16; }
+        .badge-failed { background: #fed7d7; color: #c53030; }
+        .badge-pending { background: #edf2f7; color: #4a5568; }
+
+        /* Buttons */
+        .btn { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.5rem 1rem; border: none; border-radius: 6px; cursor: pointer; font-size: 0.875rem; font-weight: 500; text-decoration: none; transition: all 0.15s; }
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-primary:hover { background: var(--primary-hover); }
+        .btn-accent { background: var(--accent); color: white; }
+        .btn-accent:hover { background: var(--accent-hover); }
+        .btn-outline { background: transparent; color: var(--text); border: 1px solid var(--border); }
+        .btn-outline:hover { background: var(--bg); }
+        .btn-danger { background: var(--danger); color: white; }
+        .btn-danger:hover { opacity: 0.9; }
+        .btn-sm { padding: 0.3rem 0.7rem; font-size: 0.8rem; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        /* Forms */
+        .form-group { margin-bottom: 1.25rem; }
+        .form-group label { display: block; font-size: 0.85rem; font-weight: 600; color: var(--text); margin-bottom: 0.3rem; }
+        .form-group .help { font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem; }
+        input[type="text"], input[type="email"], input[type="password"], input[type="file"], select, textarea {
+            width: 100%; padding: 0.6rem 0.8rem; border: 1px solid var(--border); border-radius: 6px;
+            font-size: 0.9rem; font-family: inherit; transition: border-color 0.15s;
+        }
+        input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(49,130,206,0.1); }
+
+        /* Upload */
+        .upload-zone { border: 2px dashed var(--border); border-radius: var(--radius); padding: 3rem 2rem; text-align: center; transition: all 0.2s; cursor: pointer; }
+        .upload-zone:hover, .upload-zone.dragover { border-color: var(--accent); background: rgba(49,130,206,0.04); }
+        .upload-zone .icon { font-size: 2.5rem; margin-bottom: 0.75rem; }
+        .upload-zone .text { color: var(--text-muted); font-size: 0.9rem; }
+        .upload-zone .text strong { color: var(--accent); }
+
+        /* Progress */
+        .progress-bar { width: 100%; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+        .progress-fill { height: 100%; border-radius: 3px; background: var(--accent); transition: width 0.3s; }
+
+        /* Flash messages */
+        .flash { padding: 0.75rem 1rem; border-radius: 6px; margin-bottom: 1rem; font-size: 0.9rem; }
+        .flash-success { background: #c6f6d5; color: #276749; }
+        .flash-error { background: #fed7d7; color: #c53030; }
+        .flash-info { background: #bee3f8; color: #2a4365; }
+
+        /* Auth pages */
+        .auth-container { max-width: 420px; margin: 4rem auto; padding: 0 1rem; }
+        .auth-container .card { padding: 2rem; }
+        .auth-container h1 { text-align: center; margin-bottom: 0.5rem; }
+        .auth-container .subtitle { text-align: center; color: var(--text-muted); margin-bottom: 1.5rem; font-size: 0.9rem; }
+        .auth-container .alt-link { text-align: center; margin-top: 1.5rem; font-size: 0.9rem; color: var(--text-muted); }
+        .auth-container .alt-link a { color: var(--accent); text-decoration: none; }
+
+        /* Empty states */
+        .empty { text-align: center; padding: 3rem; color: var(--text-muted); }
+        .empty .icon { font-size: 3rem; margin-bottom: 1rem; opacity: 0.4; }
+
+        /* Two column layout */
+        .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+        @media (max-width: 768px) { .two-col { grid-template-columns: 1fr; } }
+
+        /* API key display */
+        .key-display { background: #1a1a2e; color: #68d391; padding: 1rem; border-radius: 6px; font-family: 'SF Mono', monospace; font-size: 0.9rem; word-break: break-all; margin: 1rem 0; }
+
+        /* HTMX loading indicator */
+        .htmx-indicator { display: none; }
+        .htmx-request .htmx-indicator { display: inline-block; }
+        .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.6s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+    {% if session %}
+    <nav class="navbar">
+        <a href="/dashboard/" class="brand">AQUIFER</a>
+        <div class="nav-links">
+            <a href="/dashboard/" class="{{ 'active' if active_page == 'home' }}">Dashboard</a>
+            <a href="/dashboard/upload" class="{{ 'active' if active_page == 'upload' }}">Upload</a>
+            <a href="/dashboard/files" class="{{ 'active' if active_page == 'files' }}">Files</a>
+            <a href="/dashboard/settings" class="{{ 'active' if active_page == 'settings' }}">Settings</a>
+        </div>
+        <div class="nav-right">
+            <span class="tier">{{ session.tier }}</span>
+            <span style="font-size:0.85rem;">{{ session.email }}</span>
+            <a href="/dashboard/logout">Logout</a>
+        </div>
+    </nav>
+    {% endif %}
+    <div class="{% if session %}container{% else %}auth-container{% endif %}">
+        {% if flash_message %}
+        <div class="flash flash-{{ flash_type or 'info' }}">{{ flash_message }}</div>
+        {% endif %}
+        {% block content %}{% endblock %}
+    </div>
+</body>
+</html>

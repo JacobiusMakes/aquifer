@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}Aquifer — Dashboard{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>Dashboard</h1>
+    <p>{{ practice.name }} overview</p>
+</div>
+
+<div class="card-grid">
+    <div class="card stat-card">
+        <div class="value">{{ vault_stats.total_files }}</div>
+        <div class="label">Files Processed</div>
+    </div>
+    <div class="card stat-card">
+        <div class="value">{{ vault_stats.total_tokens }}</div>
+        <div class="label">PHI Tokens Secured</div>
+    </div>
+    <div class="card stat-card">
+        <div class="value">{{ vault_stats.tokens_by_type | length }}</div>
+        <div class="label">PHI Types Detected</div>
+    </div>
+    <div class="card stat-card">
+        <div class="value">{{ usage.unique_files }}</div>
+        <div class="label">Files This Month</div>
+    </div>
+</div>
+
+<div class="two-col">
+    <div class="card">
+        <h2>Detections by Type</h2>
+        {% if vault_stats.tokens_by_type %}
+        <table>
+            <thead><tr><th>PHI Type</th><th>Count</th></tr></thead>
+            <tbody>
+            {% for ptype, count in vault_stats.tokens_by_type.items() %}
+            <tr>
+                <td><span class="badge badge-{{ ptype | lower }}">{{ ptype }}</span></td>
+                <td>{{ count }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty">
+            <p>No detections yet. <a href="/dashboard/upload">Upload a file</a> to get started.</p>
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="card">
+        <h2>Recent Activity</h2>
+        {% if recent_files %}
+        <table>
+            <thead><tr><th>File</th><th>Tokens</th><th>Status</th></tr></thead>
+            <tbody>
+            {% for f in recent_files %}
+            <tr>
+                <td><a href="/dashboard/files/{{ f.id }}">{{ f.original_filename }}</a></td>
+                <td>{{ f.token_count }}</td>
+                <td><span class="badge badge-{{ f.status }}">{{ f.status }}</span></td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty">
+            <p>No files processed yet.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card">
+    <h2>Quick Actions</h2>
+    <div style="display:flex;gap:1rem;flex-wrap:wrap;">
+        <a href="/dashboard/upload" class="btn btn-accent">Upload Files</a>
+        <a href="/dashboard/files" class="btn btn-outline">View All Files</a>
+        <a href="/dashboard/settings" class="btn btn-outline">API Keys</a>
+    </div>
+</div>
+{% endblock %}

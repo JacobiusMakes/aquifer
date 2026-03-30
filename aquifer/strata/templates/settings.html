@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+{% block title %}Aquifer — Settings{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>Practice Settings</h1>
+    <p>Manage your practice, API keys, and account</p>
+</div>
+
+<div class="two-col">
+    <div class="card">
+        <h2>Practice Info</h2>
+        <table>
+            <tbody>
+                <tr><td style="font-weight:600;width:140px;">Name</td><td>{{ practice.name }}</td></tr>
+                <tr><td style="font-weight:600;">Practice ID</td><td><code class="mono">{{ practice.id[:12] }}...</code></td></tr>
+                <tr><td style="font-weight:600;">Tier</td><td><span class="badge badge-completed">{{ practice.tier }}</span></td></tr>
+                <tr><td style="font-weight:600;">Created</td><td>{{ practice.created_at[:10] }}</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="card">
+        <h2>Usage This Month</h2>
+        <div class="card-grid" style="grid-template-columns:1fr 1fr;">
+            <div class="stat-card">
+                <div class="value" style="font-size:1.75rem;">{{ usage.unique_files }}</div>
+                <div class="label">Files</div>
+            </div>
+            <div class="stat-card">
+                <div class="value" style="font-size:1.75rem;">{{ usage.total_actions }}</div>
+                <div class="label">API Calls</div>
+            </div>
+        </div>
+        {% if usage.file_limit %}
+        <div style="margin-top:1rem;">
+            <div style="display:flex;justify-content:space-between;font-size:0.85rem;margin-bottom:0.3rem;">
+                <span>File limit</span>
+                <span>{{ usage.file_count }} / {{ usage.file_limit }}</span>
+            </div>
+            <div class="progress-bar" style="height:8px;">
+                <div class="progress-fill" style="width:{{ usage.usage_pct or 0 }}%;
+                    background:{{ 'var(--danger)' if (usage.usage_pct or 0) > 90 else 'var(--accent)' }};"></div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card">
+    <h2>API Keys</h2>
+    <p style="color:var(--text-muted);font-size:0.9rem;margin-bottom:1rem;">
+        Use API keys for CLI access and integrations. Keys are shown only once at creation.
+    </p>
+
+    <form id="createKeyForm" style="display:flex;gap:0.5rem;margin-bottom:1.5rem;">
+        <input type="text" name="key_name" placeholder="Key name (e.g. CI/CD, Dentrix Export)"
+               style="flex:1;">
+        <button type="submit" class="btn btn-accent">Create Key</button>
+    </form>
+
+    <div id="newKeyDisplay" style="display:none;">
+        <div class="flash flash-info">
+            Copy this key now — it won't be shown again.
+        </div>
+        <div class="key-display" id="newKeyValue"></div>
+    </div>
+
+    <table id="keysTable">
+        <thead><tr><th>Name</th><th>Prefix</th><th>Scopes</th><th>Last Used</th><th>Created</th><th></th></tr></thead>
+        <tbody>
+        {% for k in api_keys %}
+        <tr id="key-{{ k.id }}">
+            <td>{{ k.name or '(unnamed)' }}</td>
+            <td><code class="mono">{{ k.key_prefix }}...</code></td>
+            <td>{{ k.scopes }}</td>
+            <td>{{ k.last_used_at[:16] if k.last_used_at else 'Never' }}</td>
+            <td>{{ k.created_at[:10] }}</td>
+            <td>
+                {% if k.is_active %}
+                <button class="btn btn-sm btn-danger" onclick="revokeKey('{{ k.id }}')">Revoke</button>
+                {% else %}
+                <span style="color:var(--text-muted);font-size:0.85rem;">Revoked</span>
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% if not api_keys %}
+    <div class="empty" style="padding:1.5rem;">
+        <p>No API keys yet. Create one to use the Aquifer CLI or integrate with your systems.</p>
+    </div>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h2>CLI Quick Start</h2>
+    <p style="color:var(--text-muted);font-size:0.9rem;margin-bottom:1rem;">
+        Use these commands with your API key to sync files from the command line.
+    </p>
+    <pre style="background:var(--bg);padding:1rem;border-radius:6px;font-size:0.85rem;overflow-x:auto;">
+# Install
+pip install aquifer
+
+# De-identify a file locally
+aquifer deid clinical_note.txt --vault vault.aqv --password mypass
+
+# Sync local vault to cloud
+aquifer vault sync --api-key aq_YOUR_KEY --server {{ server_url }}
+
+# Push files to cloud
+aquifer vault push --api-key aq_YOUR_KEY --server {{ server_url }}
+</pre>
+</div>
+
+<script>
+document.getElementById('createKeyForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const name = e.target.key_name.value || null;
+    const resp = await fetch('/dashboard/settings/api-keys', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+    });
+    if (resp.ok) {
+        const data = await resp.json();
+        document.getElementById('newKeyValue').textContent = data.key;
+        document.getElementById('newKeyDisplay').style.display = 'block';
+        e.target.reset();
+        location.reload();
+    } else {
+        alert('Failed to create key');
+    }
+});
+
+async function revokeKey(keyId) {
+    if (!confirm('Revoke this API key? This cannot be undone.')) return;
+    const resp = await fetch(`/dashboard/settings/api-keys/${keyId}`, { method: 'DELETE' });
+    if (resp.ok) {
+        document.getElementById('key-' + keyId).style.opacity = '0.4';
+        location.reload();
+    }
+}
+</script>
+{% endblock %}

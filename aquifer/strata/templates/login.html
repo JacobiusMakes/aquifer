@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Aquifer — Login{% endblock %}
+{% block content %}
+<div class="card">
+    <h1>Welcome back</h1>
+    <p class="subtitle">Sign in to your Aquifer practice account</p>
+
+    {% if error %}
+    <div class="flash flash-error">{{ error }}</div>
+    {% endif %}
+
+    <form method="post" action="/dashboard/login">
+        <div class="form-group">
+            <label for="email">Email</label>
+            <input type="email" name="email" id="email" required autocomplete="email"
+                   value="{{ email or '' }}" placeholder="you@practice.com">
+        </div>
+        <div class="form-group">
+            <label for="password">Password</label>
+            <input type="password" name="password" id="password" required
+                   autocomplete="current-password" placeholder="Enter your password">
+        </div>
+        <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;">Sign In</button>
+    </form>
+
+    <div class="alt-link">
+        Don't have an account? <a href="/dashboard/register">Register your practice</a>
+    </div>
+</div>
+{% endblock %}

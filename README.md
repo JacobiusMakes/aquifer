@@ -13,8 +13,7 @@ Aquifer collapses the compliance surface area from "every file everywhere" to "o
 ## Try It
 
 ```bash
-pip install -e .
-./demo.sh
+pip install aquifer
 ```
 
 Or step by step:
@@ -114,17 +113,25 @@ aquifer/
 
 ```bash
 # Core (regex detection, all file types except OCR)
-pip install -e .
+pip install aquifer
 
 # With NER detection (recommended)
-pip install -e ".[ner]"
+pip install "aquifer[ner]"
 python -m spacy download en_core_web_sm
 
 # With OCR for scanned documents
-pip install -e ".[ocr]"  # requires tesseract: brew install tesseract
+pip install "aquifer[ocr]"  # requires tesseract: brew install tesseract
 
 # Everything
-pip install -e ".[all]"
+pip install "aquifer[all]"
+```
+
+For development:
+
+```bash
+git clone https://github.com/aquifer-health/aquifer.git
+cd aquifer
+pip install -e ".[dev]"
 ```
 
 ## Testing

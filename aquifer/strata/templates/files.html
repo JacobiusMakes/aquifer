@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Aquifer — Files{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>Processed Files</h1>
+    <p>{{ total }} files in your practice vault</p>
+</div>
+
+<div class="card">
+    {% if files %}
+    <table>
+        <thead>
+            <tr>
+                <th>Filename</th>
+                <th>Type</th>
+                <th>Tokens</th>
+                <th>Size</th>
+                <th>Status</th>
+                <th>Processed</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for f in files %}
+        <tr>
+            <td><a href="/dashboard/files/{{ f.id }}">{{ f.original_filename }}</a></td>
+            <td><span class="mono">{{ f.source_type }}</span></td>
+            <td>{{ f.token_count }}</td>
+            <td>{{ "%.1f"|format(f.file_size_bytes / 1024) }} KB</td>
+            <td><span class="badge badge-{{ f.status }}">{{ f.status }}</span></td>
+            <td>{{ f.created_at[:16] }}</td>
+            <td>
+                <a href="/dashboard/files/{{ f.id }}" class="btn btn-sm btn-outline">Details</a>
+            </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+
+    {% if total > limit %}
+    <div style="display:flex;justify-content:center;gap:0.5rem;margin-top:1.5rem;">
+        {% if offset > 0 %}
+        <a href="/dashboard/files?offset={{ offset - limit }}" class="btn btn-sm btn-outline">Previous</a>
+        {% endif %}
+        {% if offset + limit < total %}
+        <a href="/dashboard/files?offset={{ offset + limit }}" class="btn btn-sm btn-outline">Next</a>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    {% else %}
+    <div class="empty">
+        <div class="icon">+</div>
+        <p>No files processed yet.</p>
+        <a href="/dashboard/upload" class="btn btn-accent" style="margin-top:1rem;">Upload Your First File</a>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
