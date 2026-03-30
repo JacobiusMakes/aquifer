@@ -55,7 +55,7 @@ async def dashboard_home(request: Request):
     vault = _get_vault()
     stats = vault.get_stats()
     files = vault.get_all_files()
-    return templates.TemplateResponse("index.html", {
+    return templates.TemplateResponse(request, "index.html", {
         "request": request,
         "stats": stats,
         "recent_files": files[:10],
@@ -66,7 +66,7 @@ async def dashboard_home(request: Request):
 async def files_list(request: Request):
     vault = _get_vault()
     files = vault.get_all_files()
-    return templates.TemplateResponse("files.html", {
+    return templates.TemplateResponse(request, "files.html", {
         "request": request,
         "files": files,
     })
@@ -77,7 +77,7 @@ async def file_detail(request: Request, file_hash: str):
     vault = _get_vault()
     file_record = vault.get_file_record(file_hash)
     if file_record is None:
-        return templates.TemplateResponse("error.html", {
+        return templates.TemplateResponse(request, "error.html", {
             "request": request,
             "error": "File not found",
             "detail": f"No file with hash {file_hash[:16]}... exists in the vault.",
@@ -90,7 +90,7 @@ async def file_detail(request: Request, file_hash: str):
         for t in tokens
     ]
 
-    return templates.TemplateResponse("file_detail.html", {
+    return templates.TemplateResponse(request, "file_detail.html", {
         "request": request,
         "file_record": file_record,
         "tokens": safe_tokens,
@@ -102,7 +102,7 @@ async def review(request: Request, file_hash: str):
     vault = _get_vault()
     file_record = vault.get_file_record(file_hash)
     if file_record is None:
-        return templates.TemplateResponse("error.html", {
+        return templates.TemplateResponse(request, "error.html", {
             "request": request,
             "error": "File not found",
             "detail": f"No file with hash {file_hash[:16]}... exists in the vault.",
@@ -115,7 +115,7 @@ async def review(request: Request, file_hash: str):
         for t in tokens if t.confidence < 0.7
     ]
 
-    return templates.TemplateResponse("review.html", {
+    return templates.TemplateResponse(request, "review.html", {
         "request": request,
         "file_record": file_record,
         "low_confidence_tokens": low_conf,
@@ -124,7 +124,7 @@ async def review(request: Request, file_hash: str):
 
 @app.get("/upload", response_class=HTMLResponse)
 async def upload_page(request: Request):
-    return templates.TemplateResponse("upload.html", {
+    return templates.TemplateResponse(request, "upload.html", {
         "request": request,
         "message": None,
         "error": None,
@@ -141,7 +141,7 @@ async def upload_file(request: Request, file: UploadFile = File(...)):
     # Validate file extension
     suffix = Path(file.filename).suffix.lower()
     if suffix not in SUPPORTED_EXTENSIONS:
-        return templates.TemplateResponse("upload.html", {
+        return templates.TemplateResponse(request, "upload.html", {
             "request": request,
             "message": None,
             "error": f"Unsupported file type: {suffix}. Supported: {', '.join(sorted(SUPPORTED_EXTENSIONS))}",
@@ -154,7 +154,7 @@ async def upload_file(request: Request, file: UploadFile = File(...)):
             tmp_path = Path(tmp.name)
     except Exception as e:
         logger.error(f"Failed to save upload: {e}")
-        return templates.TemplateResponse("upload.html", {
+        return templates.TemplateResponse(request, "upload.html", {
             "request": request,
             "message": None,
             "error": f"Failed to save uploaded file: {e}",
@@ -165,7 +165,7 @@ async def upload_file(request: Request, file: UploadFile = File(...)):
         result = process_file(tmp_path, output_path, vault, use_ner=False)
 
         if result.errors:
-            return templates.TemplateResponse("upload.html", {
+            return templates.TemplateResponse(request, "upload.html", {
                 "request": request,
                 "message": None,
                 "error": f"Processing error: {result.errors[0]}",
@@ -174,7 +174,7 @@ async def upload_file(request: Request, file: UploadFile = File(...)):
         return RedirectResponse(f"/files/{result.source_hash}", status_code=303)
     except Exception as e:
         logger.error(f"Pipeline error: {e}")
-        return templates.TemplateResponse("upload.html", {
+        return templates.TemplateResponse(request, "upload.html", {
             "request": request,
             "message": None,
             "error": f"De-identification failed: {e}",

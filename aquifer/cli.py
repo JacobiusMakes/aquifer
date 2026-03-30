@@ -528,13 +528,14 @@ def server(host: str | None, port: int | None, debug: bool, data_dir: str | None
     config = StrataConfig.from_env()
     run_host = host or config.host
     run_port = port or config.port
+    docs_host = "localhost" if run_host in {"0.0.0.0", "::"} else run_host
 
     click.echo(f"Starting Aquifer Strata server")
     click.echo(f"  Bind: {run_host}:{run_port}")
     click.echo(f"  Data: {config.data_dir}")
     click.echo(f"  Debug: {config.debug}")
     if config.debug:
-        click.echo(f"  Docs: http://{run_host}:{run_port}/docs")
+        click.echo(f"  Docs: http://{docs_host}:{run_port}/docs")
 
     from aquifer.strata.server import create_app
     app = create_app(config)

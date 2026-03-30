@@ -69,6 +69,12 @@ def _login_redirect():
     return RedirectResponse("/dashboard/login", status_code=303)
 
 
+def _cookie_secure(request: Request) -> bool:
+    """Honor HTTPS both directly and through common proxy headers."""
+    forwarded_proto = request.headers.get("x-forwarded-proto", "").split(",")[0].strip().lower()
+    return request.url.scheme == "https" or forwarded_proto == "https"
+
+
 # --- Auth Pages ---
 
 @router.get("/login", response_class=HTMLResponse)
@@ -76,7 +82,7 @@ async def login_page(request: Request):
     session = _get_session(request)
     if session:
         return RedirectResponse("/dashboard/", status_code=303)
-    return templates.TemplateResponse("login.html", _ctx(request, None))
+    return templates.TemplateResponse(request, "login.html", _ctx(request, None))
 
 
 @router.post("/login")
@@ -90,7 +96,7 @@ async def login_submit(request: Request):
 
     user = db.get_user_by_email(email)
     if not user or not verify_password(password, user["password_hash"]):
-        return templates.TemplateResponse("login.html", _ctx(
+        return templates.TemplateResponse(request, "login.html", _ctx(
             request, None, error="Invalid email or password", email=email,
         ))
 
@@ -102,6 +108,7 @@ async def login_submit(request: Request):
     response = RedirectResponse("/dashboard/", status_code=303)
     response.set_cookie(
         SESSION_COOKIE, token, httponly=True, samesite="lax",
+        secure=_cookie_secure(request),
         max_age=config.jwt_expiry_hours * 3600,
     )
     return response
@@ -112,7 +119,7 @@ async def register_page(request: Request):
     session = _get_session(request)
     if session:
         return RedirectResponse("/dashboard/", status_code=303)
-    return templates.TemplateResponse("register.html", _ctx(request, None))
+    return templates.TemplateResponse(request, "register.html", _ctx(request, None))
 
 
 @router.post("/register")
@@ -138,7 +145,7 @@ async def register_submit(request: Request):
         errors.append("Email already registered")
 
     if errors:
-        return templates.TemplateResponse("register.html", _ctx(
+        return templates.TemplateResponse(request, "register.html", _ctx(
             request, None, error="; ".join(errors),
             practice_name=practice_name, email=email,
         ))
@@ -173,6 +180,7 @@ async def register_submit(request: Request):
     response = RedirectResponse("/dashboard/", status_code=303)
     response.set_cookie(
         SESSION_COOKIE, token, httponly=True, samesite="lax",
+        secure=_cookie_secure(request),
         max_age=config.jwt_expiry_hours * 3600,
     )
     return response
@@ -181,7 +189,7 @@ async def register_submit(request: Request):
 @router.get("/logout")
 async def logout(request: Request):
     response = RedirectResponse("/dashboard/login", status_code=303)
-    response.delete_cookie(SESSION_COOKIE)
+    response.delete_cookie(SESSION_COOKIE, httponly=True, samesite="lax", secure=_cookie_secure(request))
     return response
 
 
@@ -207,7 +215,7 @@ async def dashboard_home(request: Request):
     usage = db.get_usage_stats(session["practice_id"], days=30)
     recent = db.list_files(session["practice_id"], limit=10)
 
-    return templates.TemplateResponse("home.html", _ctx(
+    return templates.TemplateResponse(request, "home.html", _ctx(
         request, session, page="home",
         practice=practice, vault_stats=vault_stats,
         usage=usage, recent_files=recent,
@@ -221,7 +229,7 @@ async def upload_page(request: Request):
     session = _get_session(request)
     if not session:
         return _login_redirect()
-    return templates.TemplateResponse("upload.html", _ctx(request, session, page="upload"))
+    return templates.TemplateResponse(request, "upload.html", _ctx(request, session, page="upload"))
 
 
 @router.post("/upload")
@@ -243,20 +251,25 @@ async def upload_file(request: Request, file: UploadFile = File(...)):
     if suffix not in supported:
         return JSONResponse({"error": f"Unsupported file type: {suffix}"}, status_code=400)
 
-    content = await file.read()
-    if len(content) > config.max_upload_bytes:
-        return JSONResponse({"error": "File too large"}, status_code=413)
-
     file_id = str(uuid.uuid4())
     upload_dir = vault_mgr.upload_dir(session["practice_id"])
     tmp_path = upload_dir / f"{file_id}{suffix}"
-    tmp_path.write_bytes(content)
+    file_size = 0
+
+    with tmp_path.open("wb") as tmp_file:
+        while chunk := await file.read(1024 * 1024):
+            file_size += len(chunk)
+            if file_size > config.max_upload_bytes:
+                tmp_file.close()
+                tmp_path.unlink(missing_ok=True)
+                return JSONResponse({"error": "File too large"}, status_code=413)
+            tmp_file.write(chunk)
 
     db.create_file_record(
         id=file_id, practice_id=session["practice_id"],
         original_filename=file.filename or "unknown",
         source_type=suffix.lstrip("."),
-        source_hash="pending", file_size_bytes=len(content),
+        source_hash="pending", file_size_bytes=file_size,
     )
 
     try:
@@ -276,7 +289,7 @@ async def upload_file(request: Request, file: UploadFile = File(...)):
         )
         db.log_usage(
             session["practice_id"], "deid", user_id=session["user_id"],
-            file_id=file_id, bytes_processed=len(content),
+            file_id=file_id, bytes_processed=file_size,
         )
 
         return JSONResponse({
@@ -304,7 +317,7 @@ async def files_page(request: Request, offset: int = 0):
     files = db.list_files(session["practice_id"], limit=limit, offset=offset)
     total = db.count_files(session["practice_id"])
 
-    return templates.TemplateResponse("files.html", _ctx(
+    return templates.TemplateResponse(request, "files.html", _ctx(
         request, session, page="files",
         files=files, total=total, limit=limit, offset=offset,
     ))
@@ -340,7 +353,7 @@ async def file_detail_page(request: Request, file_id: str):
         except Exception:
             pass
 
-    return templates.TemplateResponse("file_detail.html", _ctx(
+    return templates.TemplateResponse(request, "file_detail.html", _ctx(
         request, session, page="files",
         file=record, tokens=tokens, metadata=metadata,
         integrity_valid=integrity_valid,
@@ -415,7 +428,7 @@ async def settings_page(request: Request):
 
     server_url = str(request.base_url).rstrip("/")
 
-    return templates.TemplateResponse("settings.html", _ctx(
+    return templates.TemplateResponse(request, "settings.html", _ctx(
         request, session, page="settings",
         practice=practice, api_keys=api_keys, usage=usage,
         server_url=server_url,

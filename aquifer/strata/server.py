@@ -146,15 +146,11 @@ def create_app(config: StrataConfig | None = None) -> FastAPI:
     return app
 
 
-def _make_app() -> FastAPI | None:
-    """Lazy app factory for uvicorn module-level import.
-
-    Returns None when imported as a library without env vars configured.
-    Use create_app(config) directly for programmatic usage.
-    """
+def _build_runtime_app() -> FastAPI:
+    """Create the runtime ASGI app, failing closed unless insecure boot is explicit."""
     try:
         return create_app()
-    except Exception:
+    except Exception as exc:
         if _ALLOW_INSECURE_BOOT:
             logger.warning("Starting Aquifer with insecure boot fallback (dev only)")
             cfg = StrataConfig()
@@ -162,10 +158,30 @@ def _make_app() -> FastAPI | None:
             cfg.master_key = "INSECURE-DEV-MASTER-KEY-REPLACE-IN-PRODUCTION"
             cfg.jwt_secret = "INSECURE-DEV-JWT-SECRET-REPLACE-IN-PRODUCTION"
             return create_app(cfg)
-        # When imported as a library, don't crash — just leave app as None.
-        # Direct uvicorn usage should set env vars or use AQUIFER_ALLOW_INSECURE_BOOT=1.
-        return None
+        raise RuntimeError(
+            "Aquifer failed to start safely. Configure AQUIFER_MASTER_KEY and "
+            "AQUIFER_JWT_SECRET (or call create_app with an explicit StrataConfig). "
+            "Set AQUIFER_ALLOW_INSECURE_BOOT=1 only for isolated local development."
+        ) from exc
+
+
+class _LazyASGIApp:
+    """Delay app creation until the ASGI server actually starts handling traffic."""
+
+    def __init__(self) -> None:
+        self._app: FastAPI | None = None
+
+    def _get_app(self) -> FastAPI:
+        if self._app is None:
+            self._app = _build_runtime_app()
+        return self._app
+
+    async def __call__(self, scope, receive, send) -> None:
+        await self._get_app()(scope, receive, send)
+
+    def __getattr__(self, name: str):
+        return getattr(self._get_app(), name)
 
 
 # For `uvicorn aquifer.strata.server:app`
-app = _make_app()
+app = _LazyASGIApp()

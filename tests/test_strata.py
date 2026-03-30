@@ -213,7 +213,6 @@ class TestDeid:
         assert data["token_count"] > 0
         assert data["file_id"]
         assert data["aqf_hash"]
-        return data
 
     def test_deid_unsupported_type(self, client):
         reg = register_and_login(client)
