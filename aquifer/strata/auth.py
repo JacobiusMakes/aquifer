@@ -14,10 +14,9 @@ from __future__ import annotations
 
 import hashlib
 import hmac
-import json
 import secrets
 import time
-from base64 import urlsafe_b64decode, urlsafe_b64encode
+from base64 import urlsafe_b64encode
 from dataclasses import dataclass
 from typing import Optional
 
@@ -60,76 +59,50 @@ def verify_password(password: str, stored_hash: str) -> bool:
 # --- JWT Tokens ---
 
 def create_jwt(payload: dict, secret: str, algorithm: str = "HS256", expiry_hours: int = 24) -> str:
-    """Create a minimal JWT token (no pyjwt dependency)."""
-    header = {"alg": algorithm, "typ": "JWT"}
+    import jwt
     payload = {**payload, "exp": int(time.time()) + expiry_hours * 3600}
-
-    def _b64(data: bytes) -> str:
-        return urlsafe_b64encode(data).rstrip(b"=").decode()
-
-    header_b64 = _b64(json.dumps(header, separators=(",", ":")).encode())
-    payload_b64 = _b64(json.dumps(payload, separators=(",", ":")).encode())
-    signing_input = f"{header_b64}.{payload_b64}"
-
-    if algorithm == "HS256":
-        sig = hmac.new(secret.encode(), signing_input.encode(), hashlib.sha256).digest()
-    else:
-        raise ValueError(f"Unsupported algorithm: {algorithm}")
-
-    return f"{signing_input}.{_b64(sig)}"
+    return jwt.encode(payload, secret, algorithm=algorithm)
 
 
-def decode_jwt(token: str, secret: str, algorithm: str = "HS256") -> dict | None:
-    """Decode and verify a JWT token. Returns None if invalid."""
+class JWTError:
+    """Sentinel for JWT decode failures with reason."""
+    def __init__(self, reason: str):
+        self.reason = reason
+
+
+def decode_jwt(token: str, secret: str, algorithm: str = "HS256") -> dict | JWTError | None:
+    import jwt
     try:
-        parts = token.split(".")
-        if len(parts) != 3:
-            return None
-
-        def _unb64(s: str) -> bytes:
-            padding = 4 - len(s) % 4
-            if padding != 4:
-                s += "=" * padding
-            return urlsafe_b64decode(s)
-
-        header_b64, payload_b64, sig_b64 = parts
-        signing_input = f"{header_b64}.{payload_b64}"
-
-        # Verify signature
-        expected_sig = hmac.new(
-            secret.encode(), signing_input.encode(), hashlib.sha256
-        ).digest()
-        actual_sig = _unb64(sig_b64)
-        if not hmac.compare_digest(expected_sig, actual_sig):
-            return None
-
-        payload = json.loads(_unb64(payload_b64))
-
-        # Check expiration
-        if payload.get("exp", 0) < time.time():
-            return None
-
-        return payload
-    except Exception:
+        return jwt.decode(token, secret, algorithms=[algorithm])
+    except jwt.ExpiredSignatureError:
+        return JWTError("token has expired")
+    except jwt.InvalidTokenError:
         return None
 
 
 # --- API Keys ---
 
-def generate_api_key() -> tuple[str, str]:
-    """Generate an API key. Returns (full_key, sha256_hash).
+def generate_api_key(hmac_secret: str = "") -> tuple[str, str]:
+    """Generate an API key. Returns (full_key, hmac_hash).
 
     Key format: aq_<40 random chars>
     The full key is shown once to the user; only the hash is stored.
+    When hmac_secret is provided, uses HMAC-SHA256 (recommended).
     """
     raw = secrets.token_urlsafe(30)  # ~40 chars
     full_key = f"aq_{raw}"
-    key_hash = hashlib.sha256(full_key.encode()).hexdigest()
+    key_hash = hash_api_key(full_key, hmac_secret)
     return full_key, key_hash
 
 
-def hash_api_key(key: str) -> str:
-    """Hash an API key for lookup."""
+def hash_api_key(key: str, hmac_secret: str = "") -> str:
+    """Hash an API key for storage and lookup.
+
+    Uses HMAC-SHA256 with a server-side secret when provided (recommended).
+    Falls back to bare SHA-256 for backward compatibility with legacy keys.
+    """
+    if hmac_secret:
+        return hmac.new(hmac_secret.encode(), key.encode(), hashlib.sha256).hexdigest()
     return hashlib.sha256(key.encode()).hexdigest()
 
 
@@ -189,33 +162,51 @@ def has_api_key_scopes(auth: AuthContext, *required_scopes: str) -> bool:
     return all(scope in auth.scopes for scope in required_scopes)
 
 
+@dataclass
+class AuthResult:
+    """Result of authentication resolution."""
+    context: AuthContext | None = None
+    error: str | None = None
+
+    @property
+    def ok(self) -> bool:
+        return self.context is not None
+
+
 def resolve_auth(
     authorization: str | None,
     db: StrataDB,
     jwt_secret: str,
-) -> AuthContext | None:
+) -> AuthResult:
     """Resolve an Authorization header to an AuthContext.
 
     Accepts:
       - "Bearer <jwt_token>" (JWT)
       - "Bearer aq_<key>" (API key)
+
+    Returns AuthResult with either a valid context or a specific error reason.
     """
     if not authorization or not authorization.startswith("Bearer "):
-        return None
+        return AuthResult(error="Missing or malformed Authorization header. "
+                                "Provide 'Authorization: Bearer <token>'.")
 
     token = authorization[7:]  # Strip "Bearer "
 
     # API key path
     if token.startswith("aq_"):
-        key_hash = hash_api_key(token)
+        # Try HMAC hash first, then fall back to legacy bare SHA-256
+        key_hash = hash_api_key(token, jwt_secret)
         api_key = db.get_api_key_by_hash(key_hash)
         if not api_key:
-            return None
+            legacy_hash = hash_api_key(token)
+            api_key = db.get_api_key_by_hash(legacy_hash)
+        if not api_key:
+            return AuthResult(error="Invalid API key.")
         user = db.get_user(api_key["user_id"])
         practice = db.get_practice(api_key["practice_id"])
         if not user or not practice or not user["is_active"]:
-            return None
-        return AuthContext(
+            return AuthResult(error="API key is associated with an inactive or missing account.")
+        return AuthResult(context=AuthContext(
             practice_id=practice["id"],
             user_id=user["id"],
             email=user["email"],
@@ -223,19 +214,22 @@ def resolve_auth(
             tier=practice["tier"],
             scopes={scope.strip() for scope in api_key["scopes"].split(",") if scope.strip()},
             auth_method="api_key",
-        )
+        ))
 
     # JWT path
-    payload = decode_jwt(token, jwt_secret)
-    if not payload:
-        return None
+    result = decode_jwt(token, jwt_secret)
+    if isinstance(result, JWTError):
+        return AuthResult(error=f"Authentication failed: {result.reason}.")
+    if result is None:
+        return AuthResult(error="Invalid or malformed token.")
+    payload = result
     user = db.get_user(payload.get("sub", ""))
     if not user or not user["is_active"]:
-        return None
+        return AuthResult(error="Token references an inactive or missing account.")
     practice = db.get_practice(user["practice_id"])
     if not practice:
-        return None
-    return AuthContext(
+        return AuthResult(error="Practice not found for this account.")
+    return AuthResult(context=AuthContext(
         practice_id=practice["id"],
         user_id=user["id"],
         email=user["email"],
@@ -243,4 +237,4 @@ def resolve_auth(
         tier=practice["tier"],
         scopes={"deid", "files", "vault", "admin"},  # JWT gets full access
         auth_method="jwt",
-    )
+    ))

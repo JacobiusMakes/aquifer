@@ -19,6 +19,7 @@ build
 .pytest_cache
 tests/
 .coverage
+coverage.xml
 htmlcov/
 .mypy_cache/
 
@@ -57,3 +58,6 @@ demo.sh
 CONTRIBUTING.md
 STARTME.txt
 MANIFEST.in
+*.md
+.pre-commit-config.yaml
+.github/

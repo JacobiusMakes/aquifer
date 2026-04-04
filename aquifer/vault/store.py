@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+from aquifer.core import VaultError
 from aquifer.vault.encryption import derive_key, encrypt_value, decrypt_value
 from aquifer.vault.models import get_connection, init_db, get_salt, ensure_schema_v2
 
@@ -42,8 +43,40 @@ class TokenVault:
         self._conn = init_db(self.db_path, salt)
 
     def open(self) -> None:
-        """Open an existing vault database."""
-        self._conn = get_connection(self.db_path)
+        """Open an existing vault database.
+
+        Validates schema integrity on open. Raises ValueError if the vault
+        file is corrupt or missing required tables.
+        """
+        try:
+            self._conn = get_connection(self.db_path)
+        except sqlite3.DatabaseError as e:
+            raise VaultError(
+                f"Vault file is corrupt or not a valid database: {self.db_path}"
+            ) from e
+
+        # Validate required tables exist
+        try:
+            tables = {
+                row[0] for row in self._conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                ).fetchall()
+            }
+        except sqlite3.DatabaseError as e:
+            self._conn.close()
+            self._conn = None
+            raise VaultError(f"Vault file is corrupt: {e}") from e
+
+        required = {"vault_meta", "tokens", "files"}
+        missing = required - tables
+        if missing:
+            self._conn.close()
+            self._conn = None
+            raise VaultError(
+                f"Vault is invalid — missing required tables: {', '.join(sorted(missing))}. "
+                f"The file may be corrupt or not an Aquifer vault."
+            )
+
         salt = get_salt(self._conn)
         self._key, _ = derive_key(self._password, salt)
 
@@ -92,20 +125,28 @@ class TokenVault:
         self,
         tokens: list[tuple[str, str, str, str, str | None, float]],
     ) -> None:
-        """Batch store multiple token mappings."""
+        """Batch store multiple token mappings.
+
+        All-or-nothing: if any token fails to encrypt or store,
+        the entire batch is rolled back.
+        """
         self._ensure_open()
-        encrypted_rows = [
-            (tid, ptype, encrypt_value(pval, self._key), fhash, ahash, conf)
-            for tid, ptype, pval, fhash, ahash, conf in tokens
-        ]
-        self._conn.executemany(
-            """INSERT OR REPLACE INTO tokens
-            (token_id, phi_type, phi_value_encrypted, source_file_hash,
-             aqf_file_hash, confidence, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)""",
-            encrypted_rows,
-        )
-        self._conn.commit()
+        try:
+            encrypted_rows = [
+                (tid, ptype, encrypt_value(pval, self._key), fhash, ahash, conf)
+                for tid, ptype, pval, fhash, ahash, conf in tokens
+            ]
+            self._conn.executemany(
+                """INSERT OR REPLACE INTO tokens
+                (token_id, phi_type, phi_value_encrypted, source_file_hash,
+                 aqf_file_hash, confidence, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)""",
+                encrypted_rows,
+            )
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            raise
 
     def get_token(self, token_id: str) -> VaultToken | None:
         """Retrieve a single token by ID."""
@@ -323,6 +364,55 @@ class TokenVault:
                 "ORDER BY completed_at DESC, id DESC LIMIT 1"
             ).fetchone()
         return dict(row) if row else None
+
+    def rekey(self, new_password: str) -> None:
+        """Re-encrypt all vault tokens under a new password.
+
+        Derives a fresh key+salt from new_password, decrypts every token with
+        the current key, re-encrypts with the new key, and atomically commits
+        the updated rows and new salt.  If anything fails the transaction is
+        rolled back and the vault state is unchanged.
+
+        Can be called via: ``aquifer vault rekey``
+        """
+        self._ensure_open()
+
+        import base64
+
+        # Derive new key with a fresh salt
+        new_key, new_salt = derive_key(new_password)
+
+        # Read all tokens (still encrypted with old key)
+        rows = self._conn.execute(
+            "SELECT token_id, phi_value_encrypted FROM tokens"
+        ).fetchall()
+
+        # Decrypt with old key, re-encrypt with new key
+        reencrypted: list[tuple[str, str]] = []
+        for row in rows:
+            plaintext = decrypt_value(row["phi_value_encrypted"], self._key)
+            reencrypted.append((encrypt_value(plaintext, new_key), row["token_id"]))
+
+        # Commit everything atomically
+        new_salt_b64 = base64.b64encode(new_salt).decode()
+        try:
+            with self._conn:
+                self._conn.executemany(
+                    "UPDATE tokens SET phi_value_encrypted = ?, updated_at = CURRENT_TIMESTAMP "
+                    "WHERE token_id = ?",
+                    reencrypted,
+                )
+                self._conn.execute(
+                    "INSERT OR REPLACE INTO vault_meta (key, value) VALUES (?, ?)",
+                    ("salt", new_salt_b64),
+                )
+        except Exception:
+            # _conn context manager already rolled back; re-raise unchanged
+            raise
+
+        # Update in-memory state only after successful commit
+        self._key = new_key
+        self._password = new_password
 
     @property
     def encryption_key(self) -> bytes | None:

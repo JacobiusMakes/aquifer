@@ -1,11 +1,13 @@
 # Python
 __pycache__/
 *.py[cod]
+*.pyc
 *$py.class
 *.egg-info/
 dist/
 build/
 *.egg
+.ruff_cache/
 
 # Virtual environments
 .venv/
@@ -23,6 +25,7 @@ env/
 *.aqv
 *.aqf
 /data/
+strata_data/
 
 # Generated test fixtures (regenerate with: python tests/generate_synthetic.py)
 tests/fixtures/synthetic/
@@ -35,6 +38,7 @@ tests/fixtures/synthetic/
 .pytest_cache/
 htmlcov/
 .coverage
+coverage.xml
 
 # Claude Code
 .claude/
