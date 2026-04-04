@@ -78,7 +78,7 @@ def local_vault_2(tmp_path) -> TokenVault:
 
 
 def register_and_login(client, practice_name="Test Dental",
-                       email="admin@test.com", password="securepass123"):
+                       email="admin@test.com", password="SecurePass123"):
     """Register a practice and return the auth data."""
     resp = client.post("/api/v1/auth/register", json={
         "practice_name": practice_name,

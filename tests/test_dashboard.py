@@ -28,7 +28,7 @@ def client(app):
         yield c
 
 
-def register(client, practice="Test Dental", email="admin@test.com", password="securepass1"):
+def register(client, practice="Test Dental", email="admin@test.com", password="SecurePass1!"):
     return client.post("/dashboard/register", data={
         "practice_name": practice, "email": email, "password": password,
     }, follow_redirects=False)
@@ -54,7 +54,7 @@ class TestAuthPages:
     def test_login_flow(self, client):
         register(client)
         resp = client.post("/dashboard/login", data={
-            "email": "admin@test.com", "password": "securepass1",
+            "email": "admin@test.com", "password": "SecurePass1!",
         }, follow_redirects=False)
         assert resp.status_code == 303
         assert "aq_session" in resp.cookies

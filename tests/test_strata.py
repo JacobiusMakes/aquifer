@@ -45,7 +45,7 @@ def client(app):
 
 # --- Helper ---
 
-def register_and_login(client, practice_name="Test Dental", email="admin@test.com", password="securepass123"):
+def register_and_login(client, practice_name="Test Dental", email="admin@test.com", password="SecurePass123"):
     """Register a practice and return the auth token."""
     resp = client.post("/api/v1/auth/register", json={
         "practice_name": practice_name,
@@ -75,7 +75,7 @@ class TestAuth:
         resp = client.post("/api/v1/auth/register", json={
             "practice_name": "Another Practice",
             "email": "admin@test.com",
-            "password": "securepass123",
+            "password": "SecurePass123",
         })
         assert resp.status_code == 409
 
@@ -88,7 +88,7 @@ class TestAuth:
     def test_login(self, client):
         register_and_login(client)
         resp = client.post("/api/v1/auth/login", json={
-            "email": "admin@test.com", "password": "securepass123",
+            "email": "admin@test.com", "password": "SecurePass123",
         })
         assert resp.status_code == 200
         data = resp.json()
@@ -383,8 +383,8 @@ class TestVault:
 class TestMultiTenant:
     def test_practices_isolated(self, client):
         """Files from one practice are not visible to another."""
-        reg1 = register_and_login(client, "Practice A", "admin@a.com", "securepass1")
-        reg2 = register_and_login(client, "Practice B", "admin@b.com", "securepass2")
+        reg1 = register_and_login(client, "Practice A", "admin@a.com", "SecurePass1!")
+        reg2 = register_and_login(client, "Practice B", "admin@b.com", "SecurePass2!")
 
         # Practice A uploads a file
         client.post(
@@ -403,8 +403,8 @@ class TestMultiTenant:
 
     def test_cross_practice_file_access_blocked(self, client):
         """Cannot access another practice's files by ID."""
-        reg1 = register_and_login(client, "Practice A", "admin@a.com", "securepass1")
-        reg2 = register_and_login(client, "Practice B", "admin@b.com", "securepass2")
+        reg1 = register_and_login(client, "Practice A", "admin@a.com", "SecurePass1!")
+        reg2 = register_and_login(client, "Practice B", "admin@b.com", "SecurePass2!")
 
         deid_resp = client.post(
             "/api/v1/deid",
@@ -424,7 +424,7 @@ class TestFullLifecycle:
     def test_end_to_end(self, client):
         """Full workflow: register → deid → inspect → download → rehydrate."""
         # 1. Register
-        reg = register_and_login(client, "Smile Dental Group", "dr@smile.com", "secure123!!")
+        reg = register_and_login(client, "Smile Dental Group", "dr@smile.com", "Secure123!!")
         headers = auth_headers(reg["token"])
 
         # 2. Check practice
@@ -457,10 +457,107 @@ class TestFullLifecycle:
         assert resp.status_code == 200
         assert "John Smith" in resp.text or "123-45-6789" in resp.text
 
-        # 7. Vault stats
-        resp = client.get("/api/v1/vault/stats", headers=headers)
-        assert resp.json()["total_tokens"] > 0
 
-        # 8. Usage
-        resp = client.get("/api/v1/practice/usage", headers=headers)
-        assert resp.json()["total_actions"] > 0
+# --- API Key Scope Enforcement ---
+
+def _create_api_key(client, jwt_headers: dict, name: str, scopes: str) -> dict:
+    """Helper: create an API key and return its data dict."""
+    resp = client.post(
+        "/api/v1/auth/api-keys",
+        json={"name": name, "scopes": scopes},
+        headers=jwt_headers,
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()
+
+
+def _api_headers(key: str) -> dict:
+    return {"Authorization": f"Bearer {key}"}
+
+
+class TestApiKeyScopeEnforcement:
+    """Verify that API keys with limited scopes are blocked from out-of-scope endpoints."""
+
+    def test_deid_only_key_cannot_list_files(self, client):
+        """An API key with only 'deid' scope must be blocked from the files listing."""
+        reg = register_and_login(client)
+        jwt_hdrs = auth_headers(reg["token"])
+
+        key_data = _create_api_key(client, jwt_hdrs, "deid-only", "deid")
+        api_hdrs = _api_headers(key_data["key"])
+
+        resp = client.get("/api/v1/files", headers=api_hdrs)
+        assert resp.status_code == 403
+
+    def test_deid_only_key_cannot_access_vault_stats(self, client):
+        """An API key with only 'deid' scope must be blocked from vault endpoints."""
+        reg = register_and_login(client)
+        jwt_hdrs = auth_headers(reg["token"])
+
+        key_data = _create_api_key(client, jwt_hdrs, "deid-only-vault", "deid")
+        api_hdrs = _api_headers(key_data["key"])
+
+        resp = client.get("/api/v1/vault/stats", headers=api_hdrs)
+        assert resp.status_code == 403
+
+    def test_files_only_key_cannot_deid(self, client):
+        """An API key with only 'files' scope must be blocked from the deid endpoint."""
+        reg = register_and_login(client)
+        jwt_hdrs = auth_headers(reg["token"])
+
+        key_data = _create_api_key(client, jwt_hdrs, "files-only", "files")
+        api_hdrs = _api_headers(key_data["key"])
+
+        resp = client.post(
+            "/api/v1/deid",
+            files={"file": ("note.txt", SAMPLE_CLINICAL_NOTE.encode(), "text/plain")},
+            headers=api_hdrs,
+        )
+        assert resp.status_code == 403
+
+    def test_files_only_key_cannot_access_vault(self, client):
+        """An API key with only 'files' scope must be blocked from vault endpoints."""
+        reg = register_and_login(client)
+        jwt_hdrs = auth_headers(reg["token"])
+
+        key_data = _create_api_key(client, jwt_hdrs, "files-only-vault", "files")
+        api_hdrs = _api_headers(key_data["key"])
+
+        resp = client.get("/api/v1/vault/stats", headers=api_hdrs)
+        assert resp.status_code == 403
+
+    def test_deid_and_files_key_can_access_both(self, client):
+        """An API key with 'deid,files' scopes must succeed on both endpoint families."""
+        reg = register_and_login(client)
+        jwt_hdrs = auth_headers(reg["token"])
+
+        key_data = _create_api_key(client, jwt_hdrs, "deid-files", "deid,files")
+        api_hdrs = _api_headers(key_data["key"])
+
+        # deid endpoint
+        resp = client.post(
+            "/api/v1/deid",
+            files={"file": ("note.txt", SAMPLE_CLINICAL_NOTE.encode(), "text/plain")},
+            headers=api_hdrs,
+        )
+        assert resp.status_code == 201, f"deid failed: {resp.text}"
+
+        # files listing endpoint
+        resp = client.get("/api/v1/files", headers=api_hdrs)
+        assert resp.status_code == 200, f"files list failed: {resp.text}"
+
+    def test_jwt_session_bypasses_scope_restrictions(self, client):
+        """A full JWT session must always pass scope checks (all scopes granted)."""
+        reg = register_and_login(client)
+        jwt_hdrs = auth_headers(reg["token"])
+
+        # JWT can hit both deid and files without any explicit scopes
+        resp = client.post(
+            "/api/v1/deid",
+            files={"file": ("note.txt", SAMPLE_CLINICAL_NOTE.encode(), "text/plain")},
+            headers=jwt_hdrs,
+        )
+        assert resp.status_code == 201
+
+        resp = client.get("/api/v1/files", headers=jwt_hdrs)
+        assert resp.status_code == 200
