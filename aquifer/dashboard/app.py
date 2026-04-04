@@ -6,53 +6,48 @@ import logging
 import shutil
 import tempfile
 from pathlib import Path
-from typing import Optional
 
 from fastapi import FastAPI, File, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from aquifer.core import SUPPORTED_EXTENSIONS
+
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Aquifer Dashboard", version="0.1.0")
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
-_vault = None
-_vault_path: Optional[Path] = None
-_output_dir: Optional[Path] = None
-
-SUPPORTED_EXTENSIONS = {
-    ".pdf", ".docx", ".doc", ".txt", ".csv", ".json", ".xml",
-    ".jpg", ".jpeg", ".png", ".tiff", ".tif", ".bmp",
-}
-
 
 def configure(vault_path: Path, password: str, output_dir: Path | None = None):
     """Configure the dashboard with vault connection."""
-    global _vault, _vault_path, _output_dir
     from aquifer.vault.store import TokenVault
 
-    _vault_path = vault_path
-    _output_dir = output_dir or Path("./aqf_output")
-    _output_dir.mkdir(parents=True, exist_ok=True)
+    output_dir = output_dir or Path("./aqf_output")
+    output_dir.mkdir(parents=True, exist_ok=True)
 
-    _vault = TokenVault(vault_path, password)
+    vault = TokenVault(vault_path, password)
     if not vault_path.exists():
-        _vault.init()
+        vault.init()
     else:
-        _vault.open()
+        vault.open()
+
+    app.state.vault = vault
+    app.state.vault_path = vault_path
+    app.state.output_dir = output_dir
 
 
-def _get_vault():
-    if _vault is None:
+def _get_vault(request: Request):
+    vault = getattr(request.app.state, "vault", None)
+    if vault is None:
         raise RuntimeError("Dashboard not configured. Call configure() first.")
-    return _vault
+    return vault
 
 
 @app.get("/", response_class=HTMLResponse)
 async def dashboard_home(request: Request):
-    vault = _get_vault()
+    vault = _get_vault(request)
     stats = vault.get_stats()
     files = vault.get_all_files()
     return templates.TemplateResponse(request, "index.html", {
@@ -64,7 +59,7 @@ async def dashboard_home(request: Request):
 
 @app.get("/files", response_class=HTMLResponse)
 async def files_list(request: Request):
-    vault = _get_vault()
+    vault = _get_vault(request)
     files = vault.get_all_files()
     return templates.TemplateResponse(request, "files.html", {
         "request": request,
@@ -74,7 +69,7 @@ async def files_list(request: Request):
 
 @app.get("/files/{file_hash}", response_class=HTMLResponse)
 async def file_detail(request: Request, file_hash: str):
-    vault = _get_vault()
+    vault = _get_vault(request)
     file_record = vault.get_file_record(file_hash)
     if file_record is None:
         return templates.TemplateResponse(request, "error.html", {
@@ -99,7 +94,7 @@ async def file_detail(request: Request, file_hash: str):
 
 @app.get("/review/{file_hash}", response_class=HTMLResponse)
 async def review(request: Request, file_hash: str):
-    vault = _get_vault()
+    vault = _get_vault(request)
     file_record = vault.get_file_record(file_hash)
     if file_record is None:
         return templates.TemplateResponse(request, "error.html", {
@@ -136,7 +131,7 @@ async def upload_file(request: Request, file: UploadFile = File(...)):
     """Upload and de-identify a file."""
     from aquifer.engine.pipeline import process_file
 
-    vault = _get_vault()
+    vault = _get_vault(request)
 
     # Validate file extension
     suffix = Path(file.filename).suffix.lower()
@@ -161,7 +156,7 @@ async def upload_file(request: Request, file: UploadFile = File(...)):
         }, status_code=500)
 
     try:
-        output_path = _output_dir / Path(file.filename).with_suffix(".aqf").name
+        output_path = request.app.state.output_dir / Path(file.filename).with_suffix(".aqf").name
         result = process_file(tmp_path, output_path, vault, use_ner=False)
 
         if result.errors:
@@ -184,16 +179,16 @@ async def upload_file(request: Request, file: UploadFile = File(...)):
 
 
 @app.get("/api/stats")
-async def api_stats():
+async def api_stats(request: Request):
     """JSON API for vault statistics."""
-    vault = _get_vault()
+    vault = _get_vault(request)
     return vault.get_stats()
 
 
 @app.get("/api/files")
-async def api_files():
+async def api_files(request: Request):
     """JSON API for file listing."""
-    vault = _get_vault()
+    vault = _get_vault(request)
     return vault.get_all_files()
 
 
@@ -202,3 +197,4 @@ def run(vault_path: str, password: str, host: str = "127.0.0.1", port: int = 808
     import uvicorn
     configure(Path(vault_path), password)
     uvicorn.run(app, host=host, port=port)
+

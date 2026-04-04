@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Aquifer — Patients{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>Patient Directory</h1>
+    <p>{{ patients|length }} patient{{ 's' if patients|length != 1 }} linked to this practice</p>
+</div>
+
+<div class="card">
+    {% if patients %}
+    <table>
+        <thead>
+            <tr>
+                <th>Email</th>
+                <th>Verified</th>
+                <th>Linked</th>
+                <th>Files</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for p in patients %}
+        <tr>
+            <td>{{ p.email }}</td>
+            <td>
+                {% if p.email_verified %}
+                <span class="badge badge-completed">Verified</span>
+                {% else %}
+                <span class="badge badge-pending">Unverified</span>
+                {% endif %}
+            </td>
+            <td>{{ p.linked_at[:16] if p.linked_at else '—' }}</td>
+            <td>{{ p.file_count }}</td>
+            <td>
+                <a href="/dashboard/patients/{{ p.patient_id }}" class="btn btn-sm btn-outline">View</a>
+            </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="empty">
+        <div class="icon">+</div>
+        <p>No patients linked yet. Process patient intake files to populate this directory.</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

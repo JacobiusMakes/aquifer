@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}Check-in — Aquifer{% endblock %}
+{% block content %}
+<style>
+    .checkin-wrap { max-width: 560px; margin: 0 auto; }
+    .share-key-input {
+        font-size: 1.5rem;
+        font-family: 'SF Mono', 'Fira Code', monospace;
+        letter-spacing: 0.1em;
+        text-align: center;
+        text-transform: uppercase;
+        padding: 0.75rem 1rem;
+    }
+    .result-box { background: #f0fff4; border: 1px solid #9ae6b4; border-radius: var(--radius); padding: 1.5rem; margin-top: 1.5rem; }
+    .result-box h3 { font-size: 1rem; color: #276749; margin-bottom: 1rem; }
+    .result-stat { display: flex; justify-content: space-between; padding: 0.4rem 0; border-bottom: 1px solid #c6f6d5; font-size: 0.9rem; }
+    .result-stat:last-child { border-bottom: none; }
+    .result-stat .label { color: var(--text-muted); }
+    .result-stat .value { font-weight: 600; }
+    .domains-list { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.5rem; }
+    .domain-tag { background: #ebf8ff; color: #2b6cb0; padding: 0.2rem 0.6rem; border-radius: 4px; font-size: 0.8rem; font-weight: 500; }
+</style>
+
+<div class="checkin-wrap">
+    <div class="page-header">
+        <h1>Patient Check-in</h1>
+        <p>Enter the patient's share key to pull their records into this practice.</p>
+    </div>
+
+    <div class="card">
+        <form method="POST" action="/dashboard/checkin">
+            <div class="form-group">
+                <label for="share_key">Share Key</label>
+                <input
+                    type="text"
+                    id="share_key"
+                    name="share_key"
+                    class="share-key-input"
+                    placeholder="AQ-XXXX-XXXX"
+                    value="{{ share_key or '' }}"
+                    autocomplete="off"
+                    autofocus
+                    maxlength="12"
+                >
+                <p class="help">The patient received this key when they first registered with Aquifer.</p>
+            </div>
+
+            <div class="form-group">
+                <label for="practice_type">Practice Type</label>
+                <select id="practice_type" name="practice_type">
+                    <option value="">All records</option>
+                    {% for pt in practice_types %}
+                    <option value="{{ pt }}">{{ pt.replace('_', ' ').title() }}</option>
+                    {% endfor %}
+                </select>
+                <p class="help">Scope the transfer to records relevant to this practice type.</p>
+            </div>
+
+            <button type="submit" class="btn btn-accent" style="width:100%; justify-content:center; font-size:1rem; padding:0.75rem;">
+                Pull Records
+            </button>
+        </form>
+    </div>
+
+    {% if result %}
+    <div class="result-box">
+        <h3>Transfer Complete</h3>
+        <div class="result-stat">
+            <span class="label">Patient</span>
+            <span class="value">{{ result.masked_email }}</span>
+        </div>
+        <div class="result-stat">
+            <span class="label">Practices pulled from</span>
+            <span class="value">{{ result.transfers }}</span>
+        </div>
+        <div class="result-stat">
+            <span class="label">Data points transferred</span>
+            <span class="value">{{ result.total_tokens }}</span>
+        </div>
+        {% if result.domains %}
+        <div class="result-stat" style="flex-direction:column; gap:0.5rem;">
+            <span class="label">Domains included</span>
+            <div class="domains-list">
+                {% for domain in result.domains %}
+                <span class="domain-tag">{{ domain.replace('_', ' ') }}</span>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

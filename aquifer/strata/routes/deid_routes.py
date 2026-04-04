@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import shutil
 import tempfile
 import uuid
@@ -10,14 +11,12 @@ from pathlib import Path
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 
+from aquifer.core import SUPPORTED_EXTENSIONS
 from aquifer.strata.auth import AuthContext, has_api_key_scopes
 
-router = APIRouter(prefix="/deid", tags=["de-identification"])
+logger = logging.getLogger(__name__)
 
-SUPPORTED_EXTENSIONS = {
-    ".pdf", ".docx", ".doc", ".txt", ".csv", ".json", ".xml",
-    ".jpg", ".jpeg", ".png", ".tiff", ".tif", ".bmp",
-}
+router = APIRouter(prefix="/deid", tags=["de-identification"])
 
 
 class DeidResponse(BaseModel):
@@ -56,13 +55,26 @@ async def deid_file(request: Request, file: UploadFile = File(...)):
     vault_mgr = app.state.vault_manager
     _require_deid_scope(auth)
 
-    # Validate file
-    suffix = Path(file.filename or "unknown.txt").suffix.lower()
+    # Sanitize filename — strip directory components to prevent path traversal
+    safe_filename = Path(file.filename or "unknown.txt").name
+    suffix = Path(safe_filename).suffix.lower()
     if suffix not in SUPPORTED_EXTENSIONS:
         raise HTTPException(
             400, f"Unsupported file type: {suffix}. "
                  f"Supported: {', '.join(sorted(SUPPORTED_EXTENSIONS))}"
         )
+
+    # Reject obviously oversized uploads early via Content-Length header
+    content_length = request.headers.get("content-length")
+    if content_length:
+        try:
+            declared_size = int(content_length)
+            if declared_size > config.max_upload_bytes:
+                raise HTTPException(
+                    413, f"File too large. Maximum: {config.max_upload_bytes // (1024*1024)} MB"
+                )
+        except ValueError:
+            pass  # Malformed header — streaming check will still enforce the limit
 
     file_id = str(uuid.uuid4())
     upload_dir = vault_mgr.upload_dir(auth.practice_id)
@@ -84,7 +96,7 @@ async def deid_file(request: Request, file: UploadFile = File(...)):
     # Create DB record
     db.create_file_record(
         id=file_id, practice_id=auth.practice_id,
-        original_filename=file.filename or "unknown",
+        original_filename=safe_filename,
         source_type=suffix.lstrip("."),
         source_hash="pending",
         file_size_bytes=file_size,
@@ -110,11 +122,22 @@ async def deid_file(request: Request, file: UploadFile = File(...)):
             )
             raise HTTPException(422, f"De-identification failed: {result.errors[0]}")
 
+        # Extract data_domain from pipeline metadata if available
+        data_domain = None
+        if result.aqf_path:
+            try:
+                from aquifer.format.reader import read_aqf
+                aqf_data = read_aqf(Path(result.aqf_path))
+                data_domain = aqf_data.metadata.data_domain
+            except Exception:
+                pass
+
         db.update_file_record(
             file_id, status="completed",
             aqf_hash=result.aqf_hash,
             aqf_storage_path=str(aqf_output),
             token_count=result.token_count,
+            data_domain=data_domain,
         )
 
         db.log_usage(
@@ -124,7 +147,7 @@ async def deid_file(request: Request, file: UploadFile = File(...)):
 
         return DeidResponse(
             file_id=file_id,
-            original_filename=file.filename or "unknown",
+            original_filename=safe_filename,
             source_type=result.source_type,
             status="completed",
             token_count=result.token_count,
@@ -135,8 +158,14 @@ async def deid_file(request: Request, file: UploadFile = File(...)):
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(
+            f"De-identification failed for file_id={file_id}: {e}", exc_info=True
+        )
         db.update_file_record(file_id, status="failed", error_message=str(e))
-        raise HTTPException(500, f"Processing error: {e}")
+        raise HTTPException(
+            500, f"De-identification failed for file {file_id}. "
+                 "Check server logs for details."
+        )
     finally:
         tmp_path.unlink(missing_ok=True)
 
@@ -165,7 +194,7 @@ async def deid_batch(request: Request, files: list[UploadFile] = File(...)):
         except HTTPException as e:
             results.append(DeidResponse(
                 file_id="",
-                original_filename=file.filename or "unknown",
+                original_filename=Path(file.filename or "unknown").name,
                 source_type="unknown",
                 status="failed",
                 token_count=0,

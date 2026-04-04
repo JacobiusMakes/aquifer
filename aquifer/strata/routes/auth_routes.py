@@ -40,8 +40,19 @@ class RegisterRequest(BaseModel):
     @field_validator("password")
     @classmethod
     def validate_password(cls, v: str) -> str:
-        if len(v) < 8:
-            raise ValueError("Password must be at least 8 characters")
+        if len(v) < 10:
+            raise ValueError("Password must be at least 10 characters")
+        if not any(c.isupper() for c in v):
+            raise ValueError("Password must contain at least one uppercase letter")
+        if not any(c.islower() for c in v):
+            raise ValueError("Password must contain at least one lowercase letter")
+        if not any(c.isdigit() for c in v):
+            raise ValueError("Password must contain at least one digit")
+        # Block common weak passwords
+        common = {"password", "123456789", "qwerty", "letmein", "welcome",
+                  "admin", "aquifer", "changeme"}
+        if v.lower().rstrip("0123456789!@#$%") in common:
+            raise ValueError("Password is too common")
         return v
 
 
@@ -185,8 +196,9 @@ async def create_api_key_endpoint(body: CreateApiKeyRequest, request: Request):
     auth: AuthContext = request.state.auth
     _require_admin_api_key_scope(auth)
     db = request.app.state.db
+    config = request.app.state.config
 
-    full_key, key_hash = generate_api_key()
+    full_key, key_hash = generate_api_key(hmac_secret=config.jwt_secret)
     key_id = str(uuid.uuid4())
 
     db.create_api_key(

@@ -1,0 +1,166 @@
+{% extends "base.html" %}
+{% block title %}Aquifer — Patient Detail{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>Patient: {{ patient.email }}</h1>
+    <p><a href="/dashboard/patients">Patient Directory</a> &rsaquo; {{ patient.email }}</p>
+</div>
+
+<div class="two-col">
+    <div class="card">
+        <h2>Patient Info</h2>
+        <table>
+            <tr>
+                <th>ID</th>
+                <td class="mono">{{ patient.id }}</td>
+            </tr>
+            <tr>
+                <th>Email</th>
+                <td>{{ patient.email }}</td>
+            </tr>
+            <tr>
+                <th>Phone</th>
+                <td>{{ patient.phone or '—' }}</td>
+            </tr>
+            <tr>
+                <th>Email Verified</th>
+                <td>
+                    {% if patient.email_verified %}
+                    <span class="badge badge-completed">Yes</span>
+                    {% else %}
+                    <span class="badge badge-pending">No</span>
+                    {% endif %}
+                </td>
+            </tr>
+            <tr>
+                <th>Linked</th>
+                <td>{{ link.linked_at[:16] if link and link.linked_at else '—' }}</td>
+            </tr>
+            <tr>
+                <th>Registered</th>
+                <td>{{ patient.created_at[:16] if patient.created_at else '—' }}</td>
+            </tr>
+        </table>
+    </div>
+
+    <div class="card">
+        <h2>Create Consent</h2>
+        <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:1rem;">
+            Authorize this patient's data to be transferred to another practice.
+        </p>
+        <form method="post" action="/dashboard/patients/{{ patient.id }}/consent">
+            <div class="form-group">
+                <label for="target_practice_slug">Target Practice Slug</label>
+                <input type="text" id="target_practice_slug" name="target_practice_slug"
+                       placeholder="e.g. riverside-dental" required>
+                <div class="help">The URL slug of the receiving practice.</div>
+            </div>
+
+            <div class="form-group">
+                <label>Data Scope</label>
+                <div style="display:flex;flex-direction:column;gap:0.4rem;margin-top:0.25rem;">
+                    <label style="font-weight:normal;display:flex;align-items:center;gap:0.5rem;">
+                        <input type="checkbox" name="scope" value="demographics" checked> Demographics
+                    </label>
+                    <label style="font-weight:normal;display:flex;align-items:center;gap:0.5rem;">
+                        <input type="checkbox" name="scope" value="insurance" checked> Insurance
+                    </label>
+                    <label style="font-weight:normal;display:flex;align-items:center;gap:0.5rem;">
+                        <input type="checkbox" name="scope" value="medications" checked> Medications
+                    </label>
+                    <label style="font-weight:normal;display:flex;align-items:center;gap:0.5rem;">
+                        <input type="checkbox" name="scope" value="allergies" checked> Allergies
+                    </label>
+                    <label style="font-weight:normal;display:flex;align-items:center;gap:0.5rem;">
+                        <input type="checkbox" name="scope" value="dental"> Dental History
+                    </label>
+                    <label style="font-weight:normal;display:flex;align-items:center;gap:0.5rem;">
+                        <input type="checkbox" name="scope" value="medical_history"> Medical History
+                    </label>
+                    <label style="font-weight:normal;display:flex;align-items:center;gap:0.5rem;">
+                        <input type="checkbox" name="scope" value="surgical"> Surgical
+                    </label>
+                </div>
+            </div>
+
+            <button type="submit" class="btn btn-accent">Create Consent</button>
+        </form>
+    </div>
+</div>
+
+<div class="card">
+    <h2>Active Consents</h2>
+    {% if consents %}
+    <table>
+        <thead>
+            <tr>
+                <th>Consent ID</th>
+                <th>Direction</th>
+                <th>Other Practice</th>
+                <th>Scope</th>
+                <th>Status</th>
+                <th>Created</th>
+                <th>Expires</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for c in consents %}
+        <tr>
+            <td class="mono">{{ c.id[:8] }}</td>
+            <td>
+                {% if c.source_practice_id == session.practice_id %}
+                <span style="color:var(--accent);">Outgoing</span>
+                {% else %}
+                <span style="color:var(--success);">Incoming</span>
+                {% endif %}
+            </td>
+            <td class="mono">
+                {% if c.source_practice_id == session.practice_id %}
+                {{ c.target_practice_id[:8] }}
+                {% else %}
+                {{ c.source_practice_id[:8] }}
+                {% endif %}
+            </td>
+            <td class="mono" style="font-size:0.8rem;">{{ c.scope }}</td>
+            <td><span class="badge badge-{{ c.status }}">{{ c.status }}</span></td>
+            <td>{{ c.created_at[:16] if c.created_at else '—' }}</td>
+            <td>{{ c.expires_at[:16] if c.expires_at else '—' }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color:var(--text-muted);font-size:0.9rem;">No consents created yet.</p>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h2>Transfer History</h2>
+    {% if transfer_history %}
+    <table>
+        <thead>
+            <tr>
+                <th>Transfer ID</th>
+                <th>Consent</th>
+                <th>Tokens</th>
+                <th>Status</th>
+                <th>Date</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for t in transfer_history %}
+        <tr>
+            <td class="mono">{{ t.id[:8] }}</td>
+            <td class="mono">{{ t.consent_id[:8] }}</td>
+            <td>{{ t.token_count }}</td>
+            <td><span class="badge badge-{{ t.status }}">{{ t.status }}</span></td>
+            <td>{{ t.created_at[:16] if t.created_at else '—' }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color:var(--text-muted);font-size:0.9rem;">No transfers yet.</p>
+    {% endif %}
+</div>
+{% endblock %}

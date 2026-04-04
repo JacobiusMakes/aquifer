@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+{% block title %}Aquifer — Transfers{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>Transfer Hub</h1>
+    <p>Manage outgoing and incoming patient data transfers for this practice.</p>
+</div>
+
+<div class="card">
+    <h2>Outgoing Transfers</h2>
+    <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:1rem;">
+        Data this practice is sharing with other practices.
+    </p>
+    {% if outgoing %}
+    <table>
+        <thead>
+            <tr>
+                <th>Consent ID</th>
+                <th>Patient</th>
+                <th>Target Practice</th>
+                <th>Scope</th>
+                <th>Status</th>
+                <th>Created</th>
+                <th>Expires</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for c in outgoing %}
+        <tr>
+            <td class="mono">{{ c.id[:8] }}</td>
+            <td>{{ c.patient_email }}</td>
+            <td>{{ c.target_practice_name }}</td>
+            <td class="mono" style="font-size:0.8rem;">{{ c.scope }}</td>
+            <td><span class="badge badge-{{ c.status }}">{{ c.status }}</span></td>
+            <td>{{ c.created_at[:16] if c.created_at else '—' }}</td>
+            <td>{{ c.expires_at[:16] if c.expires_at else '—' }}</td>
+            <td style="white-space:nowrap;">
+                {% if c.status == 'pending' %}
+                <form method="post" action="/dashboard/transfers/{{ c.id }}/authorize" style="display:inline;">
+                    <button type="submit" class="btn btn-sm btn-accent">Authorize</button>
+                </form>
+                {% endif %}
+                {% if c.status == 'authorized' %}
+                <form method="post" action="/dashboard/transfers/{{ c.id }}/execute" style="display:inline;">
+                    <button type="submit" class="btn btn-sm btn-primary">Execute</button>
+                </form>
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="empty">
+        <p>No outgoing consents. Create a consent on a patient's detail page to get started.</p>
+    </div>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h2>Incoming Transfers</h2>
+    <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:1rem;">
+        Data being shared with this practice by other practices.
+    </p>
+    {% if incoming %}
+    <table>
+        <thead>
+            <tr>
+                <th>Consent ID</th>
+                <th>Patient</th>
+                <th>Source Practice</th>
+                <th>Scope</th>
+                <th>Status</th>
+                <th>Authorized</th>
+                <th>Expires</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for c in incoming %}
+        <tr>
+            <td class="mono">{{ c.id[:8] }}</td>
+            <td>{{ c.patient_email }}</td>
+            <td>{{ c.source_practice_name }}</td>
+            <td class="mono" style="font-size:0.8rem;">{{ c.scope }}</td>
+            <td><span class="badge badge-{{ c.status }}">{{ c.status }}</span></td>
+            <td>{{ c.authorized_at[:16] if c.authorized_at else '—' }}</td>
+            <td>{{ c.expires_at[:16] if c.expires_at else '—' }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="empty">
+        <p>No incoming transfers from other practices.</p>
+    </div>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h2>Transfer Log</h2>
+    {% if transfers %}
+    <table>
+        <thead>
+            <tr>
+                <th>Transfer ID</th>
+                <th>Consent</th>
+                <th>Direction</th>
+                <th>Tokens</th>
+                <th>Status</th>
+                <th>Date</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for t in transfers %}
+        <tr>
+            <td class="mono">{{ t.id[:8] }}</td>
+            <td class="mono">{{ t.consent_id[:8] }}</td>
+            <td>
+                {% if t.source_practice_id == session.practice_id %}
+                <span style="color:var(--accent);">Sent</span>
+                {% else %}
+                <span style="color:var(--success);">Received</span>
+                {% endif %}
+            </td>
+            <td>{{ t.token_count }}</td>
+            <td><span class="badge badge-{{ t.status }}">{{ t.status }}</span></td>
+            <td>{{ t.created_at[:16] if t.created_at else '—' }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color:var(--text-muted);font-size:0.9rem;">No transfer records yet.</p>
+    {% endif %}
+</div>
+{% endblock %}
