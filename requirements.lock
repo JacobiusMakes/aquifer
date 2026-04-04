@@ -1,0 +1,32 @@
+# Aquifer dependency lock file
+# Generated 2026-04-02 from the active Python environment.
+# Install with: pip install -r requirements.lock
+
+# Core runtime dependencies (from pyproject.toml [dependencies])
+click==8.1.7
+PyMuPDF==1.27.2.2
+python-docx==1.2.0
+Pillow==11.3.0
+zstandard==0.22.0
+cryptography==42.0.5
+fastapi==0.118.2
+uvicorn==0.37.0
+jinja2==3.1.4
+python-multipart==0.0.22
+pydantic==2.12.0
+PyJWT==2.8.0
+
+# Optional: NER support (aquifer[ner])
+spacy==3.8.7
+
+# Optional: OCR support (aquifer[ocr])
+pytesseract==0.3.13
+
+# Dev dependencies (aquifer[dev])
+pytest==9.0.2
+pytest-asyncio==1.3.0
+pytest-cov==7.0.0
+httpx==0.28.1
+build==1.4.2
+twine==6.2.0
+ruff==0.15.6

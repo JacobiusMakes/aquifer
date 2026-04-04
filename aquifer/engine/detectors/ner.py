@@ -52,11 +52,14 @@ def _load_general_model():
                 except OSError:
                     continue
             if _nlp_general is None:
-                logger.error(
-                    "No spaCy model found. Run: python -m spacy download en_core_web_sm"
+                logger.warning(
+                    "spaCy model 'en_core_web_sm' not installed. NER detection disabled. "
+                    "Install with: python -m spacy download en_core_web_sm"
                 )
         except ImportError:
-            logger.error("spaCy not installed. Run: pip install spacy")
+            logger.warning(
+                "spaCy not installed. NER detection disabled. Install with: pip install spacy"
+            )
             return None
     return _nlp_general
 

@@ -37,6 +37,7 @@ dependencies = [
     "jinja2>=3.1",
     "python-multipart>=0.0.9",
     "pydantic>=2.5",
+    "PyJWT>=2.8",
 ]
 
 [project.optional-dependencies]
@@ -47,10 +48,13 @@ all = ["aquifer[ner]", "aquifer[ocr]"]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio",
+    "pytest-cov>=5.0",
     "httpx",
     "spacy>=3.7",
     "build>=1.0",
     "twine>=5.0",
+    "ruff>=0.4",
+    "bandit>=1.7",
 ]
 
 [project.scripts]

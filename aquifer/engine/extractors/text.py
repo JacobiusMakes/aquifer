@@ -9,10 +9,23 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 
+_MAX_READ_BYTES = 50 * 1024 * 1024  # 50 MB cap for raw text reads
+
+
 def extract_text(path: Path) -> str:
-    """Extract text content from plain text, CSV, JSON, or XML files."""
+    """Extract text content from plain text, CSV, JSON, or XML files.
+
+    Reads up to _MAX_READ_BYTES to avoid loading huge files entirely into memory.
+    """
     suffix = path.suffix.lower()
-    content = path.read_text(encoding="utf-8", errors="replace")
+
+    # Size-limited read to prevent OOM on huge text files
+    file_size = path.stat().st_size
+    if file_size > _MAX_READ_BYTES:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            content = f.read(_MAX_READ_BYTES)
+    else:
+        content = path.read_text(encoding="utf-8", errors="replace")
 
     if suffix == ".csv":
         return _extract_csv(content)

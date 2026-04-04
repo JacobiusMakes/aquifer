@@ -89,7 +89,7 @@ class PhoneDetector:
         r'(?:(?:\+?1[-.\s]?)?'
         r'(?:\(?\d{3}\)?[-.\s]?)'
         r'\d{3}[-.\s]?\d{4})'
-        r'(?:\s*(?:ext|x|ext\.)\s*\d+)?',
+        r'(?:\s{0,5}(?:ext|x|ext\.)\s{0,5}\d{1,6})?',
         re.IGNORECASE
     )
     # NPI label patterns — used to exclude NPI numbers from phone matches
@@ -542,8 +542,19 @@ ALL_PATTERN_DETECTORS: list[PatternDetector] = [
 
 
 def detect_patterns(text: str) -> list[PHIMatch]:
-    """Run all regex-based pattern detectors on the given text."""
+    """Run all regex-based pattern detectors on the given text.
+
+    Each detector is wrapped in a try/except so a single detector failure
+    (e.g., from pathological input) does not prevent other detectors from running.
+    """
+    import logging
+    _logger = logging.getLogger(__name__)
     all_matches: list[PHIMatch] = []
     for detector in ALL_PATTERN_DETECTORS:
-        all_matches.extend(detector.detect(text))
+        try:
+            all_matches.extend(detector.detect(text))
+        except Exception as e:
+            _logger.warning(
+                f"{detector.__class__.__name__} failed: {e}; skipping"
+            )
     return all_matches

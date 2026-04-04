@@ -1,5 +1,7 @@
 # Aquifer
 
+[![CI](https://github.com/aquifer-health/aquifer/actions/workflows/ci.yml/badge.svg)](https://github.com/aquifer-health/aquifer/actions/workflows/ci.yml) [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/) [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE) [![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
+
 **HIPAA De-Identification Engine + Portable Medical Data Format**
 
 Aquifer strips Protected Health Information (PHI) from medical and dental files, replaces it with cryptographically random tokens, and packages the de-identified output into `.aqf` container files. De-identified files contain zero PHI and can be stored on any commodity storage — Google Drive, Dropbox, local NAS — without HIPAA-grade security. Only the token vault needs protection.

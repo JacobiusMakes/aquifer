@@ -15,8 +15,9 @@ import hashlib
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
+from aquifer.core import FILE_TYPE_MAP, ExtractionError, DetectionError
 from aquifer.engine.detectors.patterns import PHIMatch, detect_patterns
 from aquifer.engine.detectors.ner import detect_ner, detect_names_contextual
 from aquifer.engine.reconciler import reconcile, flag_low_confidence
@@ -26,6 +27,14 @@ from aquifer.format.writer import write_aqf
 from aquifer.vault.store import TokenVault
 
 logger = logging.getLogger(__name__)
+
+# Maximum input file size before extraction (default 100 MB).
+# Prevents OOM when large files are loaded entirely into memory.
+MAX_INPUT_FILE_BYTES = 100 * 1024 * 1024
+
+# Maximum extracted text size to process through detection (default 10 MB of text).
+# A 100 MB PDF typically yields far less text, but this is a safety net.
+MAX_TEXT_CHARS = 10 * 1024 * 1024
 
 
 @dataclass
@@ -44,35 +53,99 @@ class PipelineResult:
 
 def _detect_file_type(path: Path) -> str:
     """Determine file type from extension."""
-    ext_map = {
-        ".pdf": "pdf",
-        ".docx": "docx",
-        ".doc": "docx",
-        ".txt": "txt",
-        ".csv": "csv",
-        ".json": "json",
-        ".xml": "xml",
-        ".jpg": "image", ".jpeg": "image",
-        ".png": "image", ".tiff": "image", ".tif": "image",
-        ".bmp": "image",
-    }
-    return ext_map.get(path.suffix.lower(), "txt")
+    return FILE_TYPE_MAP.get(path.suffix.lower(), "txt")
+
+
+def _ocr_available() -> bool:
+    """Return True if pytesseract is importable."""
+    try:
+        import pytesseract  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+# --- Extractor registry ---
+
+_EXTRACTORS: dict[str, Callable[[Path], str]] = {}
+_extractors_initialized = False
+
+
+def register_extractor(file_type: str, func: Callable[[Path], str]) -> None:
+    """Register an extractor function for a given file type.
+
+    Third-party packages can call this to add support for new file types
+    without modifying pipeline.py.
+    """
+    _EXTRACTORS[file_type] = func
+
+
+def _init_extractors() -> None:
+    """Lazily import and register the built-in extractors."""
+    global _extractors_initialized
+    if _extractors_initialized:
+        return
+    try:
+        from aquifer.engine.extractors.pdf import extract_pdf
+        register_extractor("pdf", extract_pdf)
+    except ImportError:
+        pass
+    try:
+        from aquifer.engine.extractors.docx import extract_docx
+        register_extractor("docx", extract_docx)
+    except ImportError:
+        pass
+    try:
+        from aquifer.engine.extractors.image import extract_image
+        register_extractor("image", extract_image)
+    except ImportError:
+        pass
+    # text is always available — registered as fallback but also explicitly
+    from aquifer.engine.extractors.text import extract_text
+    register_extractor("txt", extract_text)
+    register_extractor("csv", extract_text)
+    register_extractor("json", extract_text)
+    register_extractor("xml", extract_text)
+    _extractors_initialized = True
 
 
 def _extract_text(path: Path, file_type: str) -> str:
-    """Extract text from a file based on its type."""
-    if file_type == "pdf":
-        from aquifer.engine.extractors.pdf import extract_pdf
-        return extract_pdf(path)
-    elif file_type == "docx":
-        from aquifer.engine.extractors.docx import extract_docx
-        return extract_docx(path)
-    elif file_type == "image":
-        from aquifer.engine.extractors.image import extract_image
-        return extract_image(path)
-    else:
-        from aquifer.engine.extractors.text import extract_text
-        return extract_text(path)
+    """Extract text from a file based on its type, using the extractor registry."""
+    _init_extractors()
+
+    extractor = _EXTRACTORS.get(file_type)
+
+    if file_type == "pdf" and extractor is not None:
+        text = extractor(path)
+        if not text.strip() and _ocr_available():
+            try:
+                from aquifer.engine.extractors.pdf import is_scanned_pdf
+                if is_scanned_pdf(path):
+                    logger.info(f"Scanned PDF detected, falling back to OCR: {path.name}")
+                    try:
+                        from aquifer.engine.extractors.pdf import extract_pdf_ocr
+                        text = extract_pdf_ocr(path)
+                    except (ImportError, AttributeError):
+                        pass
+            except ImportError:
+                pass
+        return text
+
+    if file_type == "image":
+        if extractor is None or not _ocr_available():
+            logger.warning(
+                "pytesseract not installed; cannot extract text from image %s. "
+                "Install with: pip install pytesseract", path.name
+            )
+            return ""
+        return extractor(path)
+
+    if extractor is not None:
+        return extractor(path)
+
+    # Fallback: plain text extraction for unknown types
+    from aquifer.engine.extractors.text import extract_text
+    return extract_text(path)
 
 
 def _compute_file_hash(path: Path) -> str:
@@ -112,19 +185,37 @@ def process_file(
     )
 
     try:
+        # Step 0: Check file size before any processing
+        file_size = input_path.stat().st_size
+        if file_size > MAX_INPUT_FILE_BYTES:
+            result.errors.append(
+                f"File too large ({file_size / (1024*1024):.1f} MB). "
+                f"Maximum supported: {MAX_INPUT_FILE_BYTES // (1024*1024)} MB. "
+                f"Split large files before processing."
+            )
+            return result
+
         # Step 1: Detect file type and compute hash
         file_type = _detect_file_type(input_path)
         result.source_type = file_type
         result.source_hash = _compute_file_hash(input_path)
 
         if verbose:
-            logger.info(f"Processing {input_path} (type={file_type})")
+            logger.info(f"Processing {input_path} (type={file_type}, size={file_size} bytes)")
 
         # Step 2: Extract text
         text = _extract_text(input_path, file_type)
         if not text.strip():
             result.errors.append("No text content extracted")
             return result
+
+        # Guard against extracted text exceeding memory limits
+        if len(text) > MAX_TEXT_CHARS:
+            logger.warning(
+                f"Extracted text is very large ({len(text)} chars). "
+                f"Truncating to {MAX_TEXT_CHARS} chars for processing."
+            )
+            text = text[:MAX_TEXT_CHARS]
 
         if verbose:
             logger.info(f"Extracted {len(text)} characters")
@@ -172,8 +263,8 @@ def process_file(
 
         # Step 5.6: For JSON/CSV, preserve de-identified structured data
         structured = None
-        if file_type == "json":
-            structured = _deidentify_structured(input_path, tokenization)
+        if file_type in ("json", "csv"):
+            structured = _deidentify_structured(input_path, tokenization, file_type)
 
         # Step 6: Write .aqf file
         aqf_hash = write_aqf(
@@ -219,6 +310,45 @@ import re as _re
 _CDT_PATTERN = _re.compile(r'\bD\d{4}\b')
 
 
+def _classify_domain(text: str, file_type: str) -> str:
+    """Classify which data domain a document belongs to based on content."""
+    text_lower = text.lower()
+
+    # Check for domain-specific keywords
+    dental_keywords = {"tooth", "teeth", "crown", "filling", "periodontal", "perio",
+                       "extraction", "implant", "denture", "orthodont", "caries",
+                       "endodontic", "root canal", "x-ray", "radiograph", "bitewing"}
+    insurance_keywords = {"member id", "group number", "policy", "subscriber",
+                         "carrier", "coverage", "copay", "deductible", "benefits"}
+    allergy_keywords = {"allergy", "allergies", "allergic", "reaction", "anaphylaxis",
+                       "latex", "penicillin", "sulfa"}
+    medication_keywords = {"medication", "prescription", "rx", "dosage", "mg",
+                          "tablet", "capsule", "twice daily", "once daily"}
+    medical_keywords = {"diagnosis", "condition", "surgery", "hospital",
+                       "blood pressure", "diabetes", "hypertension"}
+    intake_keywords = {"patient information", "intake form", "new patient",
+                      "date of birth", "emergency contact", "marital status"}
+
+    # Score each domain
+    scores = {}
+    for keyword_set, domain in [
+        (dental_keywords, "dental"),
+        (insurance_keywords, "insurance"),
+        (allergy_keywords, "allergies"),
+        (medication_keywords, "medications"),
+        (medical_keywords, "medical_history"),
+        (intake_keywords, "demographics"),
+    ]:
+        score = sum(1 for kw in keyword_set if kw in text_lower)
+        if score > 0:
+            scores[domain] = score
+
+    if not scores:
+        return "demographics"  # Default for unclassified documents
+
+    return max(scores, key=scores.get)
+
+
 def _extract_metadata(text: str, file_type: str) -> AQFMetadata:
     """Extract non-PHI metadata from text."""
     cdt_codes = list(set(_CDT_PATTERN.findall(text)))
@@ -232,21 +362,64 @@ def _extract_metadata(text: str, file_type: str) -> AQFMetadata:
     elif "treatment plan" in text_lower:
         doc_type = "treatment_plan"
 
+    data_domain = _classify_domain(text, file_type)
+
     return AQFMetadata(
         document_type=doc_type,
         cdt_codes=sorted(cdt_codes),
+        data_domain=data_domain,
     )
 
 
-def _deidentify_structured(input_path: Path, tokenization) -> dict | None:
-    """For JSON files, return a de-identified version of the structured data."""
+def _deidentify_structured(input_path: Path, tokenization, file_type: str) -> dict | None:
+    """Return a de-identified version of structured data (JSON or CSV).
+
+    For JSON: replaces PHI values in the serialised JSON string, then
+    re-parses back to a dict so write_aqf can embed it in the .aqf output.
+
+    For CSV: replaces PHI values cell-by-cell and returns the result as a
+    dict with keys ``headers`` and ``rows`` for embedding in the .aqf output.
+    """
+    import csv
+    import io
     import json
-    try:
-        with open(input_path) as f:
-            data = json.load(f)
-        raw = json.dumps(data)
-        for mapping in tokenization.mappings:
-            raw = raw.replace(mapping.phi_value, mapping.token_string)
-        return json.loads(raw)
-    except Exception:
-        return None
+
+    if file_type == "json":
+        try:
+            with open(input_path) as f:
+                data = json.load(f)
+            raw = json.dumps(data)
+            for mapping in tokenization.mappings:
+                raw = raw.replace(mapping.phi_value, mapping.token_string)
+            return json.loads(raw)
+        except Exception as exc:
+            logger.warning("Failed to de-identify JSON structured data for %s: %s", input_path.name, exc)
+            return None
+
+    if file_type == "csv":
+        try:
+            content = input_path.read_text(encoding="utf-8", errors="replace")
+            reader = csv.reader(io.StringIO(content))
+            rows = list(reader)
+            if not rows:
+                return None
+
+            # Build a lookup from phi_value → token_string for fast replacement
+            phi_map: dict[str, str] = {
+                m.phi_value: m.token_string for m in tokenization.mappings
+            }
+
+            def _replace_cell(cell: str) -> str:
+                for phi, token in phi_map.items():
+                    cell = cell.replace(phi, token)
+                return cell
+
+            deidentified = [[_replace_cell(cell) for cell in row] for row in rows]
+            headers = deidentified[0] if len(deidentified) > 1 else []
+            data_rows = deidentified[1:] if len(deidentified) > 1 else deidentified
+            return {"headers": headers, "rows": data_rows}
+        except Exception as exc:
+            logger.warning("Failed to de-identify CSV structured data for %s: %s", input_path.name, exc)
+            return None
+
+    return None

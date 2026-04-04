@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import getpass
+import json
 import logging
 import sys
 from pathlib import Path
 
 import click
+
+from aquifer.core import SUPPORTED_EXTENSIONS
 
 
 @click.group()
@@ -71,10 +74,8 @@ def _process_directory(input_dir: Path, output_dir: str | None,
     out_dir = Path(output_dir) if output_dir else input_dir / "deidentified"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    supported = {".pdf", ".docx", ".doc", ".txt", ".csv", ".json", ".xml",
-                 ".jpg", ".jpeg", ".png", ".tiff", ".tif", ".bmp"}
     files = [f for f in input_dir.iterdir()
-             if f.is_file() and f.suffix.lower() in supported
+             if f.is_file() and f.suffix.lower() in SUPPORTED_EXTENSIONS
              and not f.name.startswith('.')]
 
     if not files:
@@ -118,6 +119,205 @@ def _print_result(result, verbose):
         for d in result.low_confidence:
             click.echo(f"    [{d.phi_type.value}] \"{d.text}\" "
                         f"(confidence={d.confidence:.2f})")
+
+
+@cli.command()
+@click.argument("directory", type=click.Path(exists=True))
+@click.option("-o", "--output", required=True, type=click.Path(), help="Output directory for .aqf files")
+@click.option("--vault", "vault_path", required=True, type=click.Path(), help="Vault file path")
+@click.option("--password", "password", default=None,
+              help="Vault password (will prompt if not given)")
+@click.option("--no-ner", is_flag=True, help="Disable NER detection")
+@click.option("--workers", default=1, type=int, help="Parallel workers (default: 1)")
+@click.option("--resume", is_flag=True, help="Skip files already processed")
+@click.option("--preserve-names", is_flag=True,
+              help="Keep original filenames in output (default: use UUID names)")
+def batch(directory: str, output: str, vault_path: str, password: str | None,
+          no_ner: bool, workers: int, resume: bool, preserve_names: bool):
+    """Process a backlog of files for de-identification.
+
+    Recursively finds all supported files in DIRECTORY and processes them.
+    Shows progress counter and summary statistics.
+
+    Output files are named with UUIDs by default to avoid exposing PHI
+    from filenames like "Garcia_Maria_intake_03152026.pdf". Use
+    --preserve-names to keep original names (e.g. for internal workflows
+    where filenames contain no PHI).
+    """
+    import concurrent.futures
+    import uuid as _uuid
+    from aquifer.engine.pipeline import process_file
+    from aquifer.vault.store import TokenVault
+
+    if password is None:
+        password = getpass.getpass("Vault password: ")
+
+    vault_p = Path(vault_path)
+    out_dir = Path(output)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    vault = TokenVault(vault_p, password)
+    if not vault_p.exists():
+        click.echo(f"Initializing new vault at {vault_p}")
+        vault.init()
+    else:
+        vault.open()
+
+    # Recursively find all supported files
+    src_dir = Path(directory)
+    all_files = [
+        f for f in src_dir.rglob("*")
+        if f.is_file() and f.suffix.lower() in SUPPORTED_EXTENSIONS
+        and not f.name.startswith(".")
+    ]
+
+    if not all_files:
+        click.echo("No supported files found.")
+        vault.close()
+        return
+
+    if resume and not preserve_names:
+        click.echo("Note: --resume has no effect without --preserve-names (UUID output names are always unique).")
+
+    # Build work list, optionally skipping already-processed files.
+    # Output filenames are UUIDs by default; --preserve-names keeps the original stem.
+    work = []
+    skipped = 0
+    for f in all_files:
+        rel = f.relative_to(src_dir)
+        if preserve_names:
+            out_stem = rel.with_suffix(".aqf")
+        else:
+            out_stem = Path(str(_uuid.uuid4()) + ".aqf")
+        out_file = out_dir / out_stem
+        if resume and out_file.exists():
+            skipped += 1
+            continue
+        work.append((f, out_file))
+
+    total = len(work)
+    click.echo(f"Found {len(all_files)} files, {total} to process, {skipped} skipped.")
+
+    if total == 0:
+        vault.close()
+        return
+
+    succeeded = 0
+    failed = 0
+
+    def _process_one(args):
+        src, dst = args
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        return process_file(src, dst, vault, use_ner=not no_ner, verbose=False)
+
+    try:
+        if workers > 1:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+                futures = {executor.submit(_process_one, item): item for item in work}
+                done = 0
+                for future in concurrent.futures.as_completed(futures):
+                    src, _ = futures[future]
+                    done += 1
+                    click.echo(f"[{done}/{total}] Processing {src.name}...")
+                    try:
+                        result = future.result()
+                        if result.errors:
+                            click.echo(f"  ERROR: {result.errors[0]}", err=True)
+                            failed += 1
+                        else:
+                            succeeded += 1
+                    except Exception as e:
+                        click.echo(f"  ERROR: {e}", err=True)
+                        failed += 1
+        else:
+            for i, (src, dst) in enumerate(work, 1):
+                click.echo(f"[{i}/{total}] Processing {src.name}...")
+                try:
+                    result = _process_one((src, dst))
+                    if result.errors:
+                        click.echo(f"  ERROR: {result.errors[0]}", err=True)
+                        failed += 1
+                    else:
+                        succeeded += 1
+                except Exception as e:
+                    click.echo(f"  ERROR: {e}", err=True)
+                    failed += 1
+    finally:
+        vault.close()
+
+    click.echo(f"\nDone: {succeeded} succeeded, {failed} failed, {skipped} skipped.")
+    if failed:
+        sys.exit(1)
+
+
+@cli.command()
+@click.argument("inbox", type=click.Path(exists=True))
+@click.option("-o", "--output", required=True, type=click.Path(), help="Output directory for .aqf files")
+@click.option("--vault", "vault_path", required=True, type=click.Path(), help="Vault file path")
+@click.option("--password", prompt=True, hide_input=True)
+@click.option("--no-ner", is_flag=True, help="Disable NER detection")
+@click.option("--interval", default=5.0, type=float, help="Polling interval in seconds (default: 5)")
+@click.option("--keep-originals", is_flag=True,
+              help="Don't move originals to archive (leave in inbox)")
+def watch(inbox: str, output: str, vault_path: str, password: str,
+          no_ner: bool, interval: float, keep_originals: bool):
+    """Watch a folder and auto-process new files.
+
+    Monitors INBOX for new supported files, de-identifies them,
+    and saves to OUTPUT with non-PHI filenames (UUIDs).
+
+    Original files are moved to INBOX/.aquifer_originals/ by default.
+    Press Ctrl+C to stop.
+
+    Example:
+        aquifer watch /office/scanner_output -o /office/clean --vault practice.aqv
+    """
+    from aquifer.watchfolder import WatchFolder
+    from aquifer.vault.store import TokenVault
+
+    vault_p = Path(vault_path)
+    inbox_p = Path(inbox)
+    output_p = Path(output)
+
+    vault = TokenVault(vault_p, password)
+    if not vault_p.exists():
+        click.echo(f"Initializing new vault at {vault_p}")
+        vault.init()
+    else:
+        vault.open()
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(message)s",
+                        datefmt="%H:%M:%S")
+
+    click.echo("=" * 60)
+    click.echo("  Aquifer Watchfolder Daemon")
+    click.echo("=" * 60)
+    click.echo(f"  Inbox:    {inbox_p}")
+    click.echo(f"  Output:   {output_p}")
+    click.echo(f"  Vault:    {vault_p}")
+    click.echo(f"  Interval: {interval}s")
+    click.echo(f"  NER:      {'disabled' if no_ner else 'enabled'}")
+    click.echo(f"  Archive:  {'no (originals stay in inbox)' if keep_originals else str(inbox_p / '.aquifer_originals')}")
+    click.echo("=" * 60)
+    click.echo("  Press Ctrl+C to stop.")
+    click.echo("")
+
+    watcher = WatchFolder(
+        inbox=inbox_p,
+        output_dir=output_p,
+        vault=vault,
+        use_ner=not no_ner,
+        poll_interval=interval,
+        archive_originals=not keep_originals,
+    )
+
+    try:
+        watcher.start()
+    except KeyboardInterrupt:
+        click.echo("")
+        click.echo("Stopped.")
+    finally:
+        vault.close()
 
 
 @cli.command()
@@ -227,6 +427,70 @@ def vault_stats(vault_path: str, password: str | None):
             click.echo(f"  Tokens by type:")
             for t, c in sorted(stats['tokens_by_type'].items()):
                 click.echo(f"    {t}: {c}")
+    finally:
+        v.close()
+
+
+@vault.command("rekey")
+@click.argument("vault_path", type=click.Path(exists=True))
+@click.option("--password", prompt="Current password", hide_input=True)
+@click.option("--new-password", prompt="New password", hide_input=True, confirmation_prompt=True)
+def vault_rekey(vault_path: str, password: str, new_password: str):
+    """Re-encrypt all vault tokens with a new password."""
+    from aquifer.vault.store import TokenVault
+
+    v = TokenVault(Path(vault_path), password)
+    v.open()
+    try:
+        count = v.rekey(new_password)
+        click.echo(f"Vault re-encrypted successfully: {count} tokens updated.")
+    finally:
+        v.close()
+
+
+@vault.command("export-audit")
+@click.argument("vault_path", type=click.Path(exists=True))
+@click.option("--password", prompt=True, hide_input=True)
+@click.option("--format", "fmt", type=click.Choice(["json", "table"]), default="table")
+def vault_export_audit(vault_path: str, password: str, fmt: str):
+    """Export vault sync history and statistics."""
+    from aquifer.vault.store import TokenVault
+
+    v = TokenVault(Path(vault_path), password)
+    v.open()
+    try:
+        v.ensure_sync_schema()
+        stats = v.get_stats()
+        history = v.get_sync_history(limit=50)
+
+        if fmt == "json":
+            data = {
+                "vault": vault_path,
+                "stats": stats,
+                "sync_history": history,
+            }
+            click.echo(json.dumps(data, indent=2, default=str))
+        else:
+            click.echo(f"Vault: {vault_path}")
+            click.echo(f"  Total tokens: {stats['total_tokens']}")
+            click.echo(f"  Total files:  {stats['total_files']}")
+            if stats.get("tokens_by_type"):
+                click.echo(f"  Tokens by type:")
+                for t, c in sorted(stats["tokens_by_type"].items()):
+                    click.echo(f"    {t}: {c}")
+
+            if history:
+                click.echo(f"\nSync history ({len(history)} entries):")
+                click.echo(f"  {'Timestamp':<26}  {'Direction':<10}  {'Tokens':>6}  {'Status'}")
+                click.echo(f"  {'-'*26}  {'-'*10}  {'-'*6}  {'-'*10}")
+                for entry in history:
+                    ts = entry.get("completed_at") or entry.get("started_at") or ""
+                    click.echo(
+                        f"  {str(ts):<26}  {entry.get('direction', ''):<10}  "
+                        f"{entry.get('token_count', 0):>6}  {entry.get('status', '')}"
+                    )
+            else:
+                click.echo("\nNo sync history recorded.")
     finally:
         v.close()
 
@@ -540,6 +804,34 @@ def server(host: str | None, port: int | None, debug: bool, data_dir: str | None
     from aquifer.strata.server import create_app
     app = create_app(config)
     uvicorn.run(app, host=run_host, port=run_port)
+
+
+@cli.command()
+@click.option("--url", default="http://localhost:8443", help="Strata server URL")
+def health(url: str):
+    """Check Strata server health."""
+    import urllib.error
+    import urllib.request
+
+    endpoint = f"{url.rstrip('/')}/api/v1/health"
+    try:
+        with urllib.request.urlopen(endpoint, timeout=5) as resp:
+            data = json.loads(resp.read().decode())
+        status = data.get("status", "unknown")
+        healthy = status == "healthy"
+        click.echo(f"Status:  {status}")
+        if data.get("version"):
+            click.echo(f"Version: {data['version']}")
+        if data.get("service"):
+            click.echo(f"Service: {data['service']}")
+        if not healthy:
+            sys.exit(1)
+    except urllib.error.HTTPError as e:
+        click.echo(f"Server returned HTTP {e.code}", err=True)
+        sys.exit(1)
+    except (urllib.error.URLError, OSError) as e:
+        click.echo(f"Could not reach server at {url}: {e}", err=True)
+        sys.exit(1)
 
 
 # ---------------------------------------------------------------------------

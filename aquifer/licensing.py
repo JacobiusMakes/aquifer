@@ -1,34 +1,35 @@
 """License key validation and feature gating.
 
 License keys are signed tokens that encode:
-- Tier (community, starter, professional, enterprise)
+- Tier (community, professional, enterprise)
 - Practice ID
 - Expiration date
 - Feature flags
 
 Format: AQ-<TIER>-<PAYLOAD>-<SIGNATURE>
 
-Community tier (no key required) gets:
-- De-identification engine (all file types)
+Community tier (no key required) — the full product, free forever:
+- De-identification engine (all file types, unlimited files)
 - .aqf format read/write
-- CLI tool
-- Local vault
-- 100 files/month
-
-Starter ($99/mo):
-- Unlimited local processing
-- Claim status tracking
+- CLI tool, API access
+- Cloud vault (encrypted, server-managed)
+- Patient portability (register, share key, pull, consent, transfer)
+- Dashboard (all pages)
+- Form scanner + auto-fill
+- Health data import (Apple Health, FHIR, manual)
 
 Professional ($299/mo):
-- Full claims tracking + denial prediction + appeal drafts
-- QC dashboard
-- Cloud/hybrid vault
+- Everything in community, plus:
+- Claims intelligence: denial prediction + appeal generation
+- Priority support
+- Advanced analytics
 
-Enterprise ($499+/mo):
-- Multi-location
-- Cross-practice analytics
-- Custom NER training
-- API access
+Enterprise (custom pricing):
+- Everything in professional, plus:
+- SSO/SAML
+- Dedicated infrastructure + SLA
+- Custom integrations
+- White-label option
 """
 
 from __future__ import annotations
@@ -46,7 +47,6 @@ from typing import Optional
 
 class Tier(str, Enum):
     COMMUNITY = "community"
-    STARTER = "starter"
     PROFESSIONAL = "professional"
     ENTERPRISE = "enterprise"
 
@@ -54,32 +54,28 @@ class Tier(str, Enum):
 # Features unlocked by tier
 TIER_FEATURES: dict[Tier, set[str]] = {
     Tier.COMMUNITY: {
-        "deid", "aqf_read", "aqf_write", "vault_local", "cli",
-    },
-    Tier.STARTER: {
-        "deid", "aqf_read", "aqf_write", "vault_local", "cli",
-        "claims_tracking", "unlimited_files",
+        "deid", "aqf_read", "aqf_write", "vault_local", "vault_cloud", "cli",
+        "api_access", "dashboard", "portability", "form_scanner", "health_import",
     },
     Tier.PROFESSIONAL: {
-        "deid", "aqf_read", "aqf_write", "vault_local", "cli",
-        "claims_tracking", "unlimited_files",
-        "denial_prediction", "appeal_generation", "qc_dashboard",
-        "vault_cloud",
+        "deid", "aqf_read", "aqf_write", "vault_local", "vault_cloud", "cli",
+        "api_access", "dashboard", "portability", "form_scanner", "health_import",
+        "denial_prediction", "appeal_generation", "claims_intelligence",
+        "priority_support", "advanced_analytics",
     },
     Tier.ENTERPRISE: {
-        "deid", "aqf_read", "aqf_write", "vault_local", "cli",
-        "claims_tracking", "unlimited_files",
-        "denial_prediction", "appeal_generation", "qc_dashboard",
-        "vault_cloud",
-        "multi_location", "cross_practice_analytics", "custom_ner",
-        "api_access",
+        "deid", "aqf_read", "aqf_write", "vault_local", "vault_cloud", "cli",
+        "api_access", "dashboard", "portability", "form_scanner", "health_import",
+        "denial_prediction", "appeal_generation", "claims_intelligence",
+        "priority_support", "advanced_analytics",
+        "sso_saml", "dedicated_infrastructure", "sla", "custom_integrations",
+        "white_label",
     },
 }
 
-# Monthly file limits by tier
+# No file limits for any tier — community is the full product
 TIER_FILE_LIMITS: dict[Tier, int | None] = {
-    Tier.COMMUNITY: 100,
-    Tier.STARTER: None,      # unlimited
+    Tier.COMMUNITY: None,
     Tier.PROFESSIONAL: None,
     Tier.ENTERPRISE: None,
 }
@@ -264,9 +260,8 @@ def require_feature(feature: str) -> None:
                 tier_needed = tier
                 break
         raise LicenseError(
-            f"Feature '{feature}' requires {tier_needed.value if tier_needed else 'a paid'} "
-            f"license. Current tier: {license.tier.value}. "
-            f"Upgrade at https://aquifer.health/pricing"
+            f"Feature '{feature}' requires a {tier_needed.value if tier_needed else 'professional or enterprise'} "
+            f"subscription. See https://aquifer.health/pricing"
         )
 
 

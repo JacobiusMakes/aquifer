@@ -2,17 +2,13 @@
 # Aquifer — Production Docker Compose
 #
 # Usage:
-#   docker compose up -d                 # Start all services
-#   docker compose logs -f aquifer-server # Follow server logs
-#   docker compose down                  # Stop all services
+#   cp .env.example .env        # First time: copy and fill in your secrets
+#   docker compose up -d        # Start all services
+#   docker compose logs -f aquifer-server  # Follow server logs
+#   docker compose down         # Stop all services
 #
-# Before first run, set your secrets:
-#   export AQUIFER_MASTER_KEY=$(python -c "import secrets; print(secrets.token_urlsafe(32))")
-#   export AQUIFER_JWT_SECRET=$(python -c "import secrets; print(secrets.token_urlsafe(32))")
-#
-# Or create a .env file (never commit it!):
-#   AQUIFER_MASTER_KEY=your-key-here
-#   AQUIFER_JWT_SECRET=your-secret-here
+# Secrets are loaded from .env (never commit that file!).
+# See .env.example for all supported variables.
 # =============================================================================
 
 services:
@@ -27,9 +23,12 @@ services:
     container_name: aquifer-server
     restart: unless-stopped
 
+    # Load environment from .env file (copy .env.example to .env to get started).
+    # Variables set here override values in .env.
+    env_file: .env
+
     # Environment configuration
-    # Required secrets are passed from host env or .env file.
-    # The entrypoint script will auto-generate them if not set (with a warning).
+    # Values below override anything in .env for container-specific settings.
     environment:
       - AQUIFER_MASTER_KEY=${AQUIFER_MASTER_KEY:-}
       - AQUIFER_JWT_SECRET=${AQUIFER_JWT_SECRET:-}

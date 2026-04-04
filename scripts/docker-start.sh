@@ -2,10 +2,11 @@
 # =============================================================================
 # Aquifer Strata Server — Docker Entrypoint
 #
-# This script handles first-run setup:
-#   1. Auto-generates AQUIFER_MASTER_KEY and AQUIFER_JWT_SECRET if not set
-#   2. Prints clear warnings when using auto-generated secrets
-#   3. Starts the Strata API server
+# Secret resolution order (for AQUIFER_MASTER_KEY and AQUIFER_JWT_SECRET):
+#   1. Environment variable (highest priority)
+#   2. Key file on the mounted data volume (/data/strata/.master_key etc.)
+#   3. Auto-generate and save to key file (only if AQUIFER_ALLOW_INSECURE_DEFAULTS=1)
+#   4. Exit with error (default — prevents silent data loss)
 # =============================================================================
 
 set -euo pipefail
@@ -36,56 +37,102 @@ echo -e "${BOLD}================================================${NC}"
 echo ""
 
 # ---------------------------------------------------------------------------
-# Auto-generate secrets if not provided
+# Ensure data directory exists before we try to read/write key files
 # ---------------------------------------------------------------------------
-GENERATED_SECRETS=false
+DATA_DIR="${AQUIFER_DATA_DIR:-/data/strata}"
+mkdir -p "$DATA_DIR" 2>/dev/null || true
 
-if [ -z "${AQUIFER_MASTER_KEY:-}" ]; then
+# ---------------------------------------------------------------------------
+# Resolve AQUIFER_MASTER_KEY
+# ---------------------------------------------------------------------------
+MASTER_KEY_FILE="$DATA_DIR/.master_key"
+MASTER_KEY_SOURCE=""
+
+if [ -n "${AQUIFER_MASTER_KEY:-}" ]; then
+    MASTER_KEY_SOURCE="environment variable"
+elif [ -f "$MASTER_KEY_FILE" ]; then
+    export AQUIFER_MASTER_KEY=$(cat "$MASTER_KEY_FILE")
+    MASTER_KEY_SOURCE="key file ($MASTER_KEY_FILE)"
+elif [ "${AQUIFER_ALLOW_INSECURE_DEFAULTS:-0}" = "1" ]; then
     export AQUIFER_MASTER_KEY=$(python -c "import secrets; print(secrets.token_urlsafe(32))")
-    GENERATED_SECRETS=true
-    echo -e "${YELLOW}WARNING: AQUIFER_MASTER_KEY was not set.${NC}"
-    echo -e "${YELLOW}  Auto-generated a random key for this session.${NC}"
-    echo -e "${YELLOW}  Data encrypted with this key will be UNRECOVERABLE if the container restarts.${NC}"
+    printf '%s' "$AQUIFER_MASTER_KEY" > "$MASTER_KEY_FILE"
+    chmod 600 "$MASTER_KEY_FILE"
+    MASTER_KEY_SOURCE="generated + saved to $MASTER_KEY_FILE"
+    echo -e "${RED}=====================================================${NC}"
+    echo -e "${RED}  WARNING: AQUIFER_MASTER_KEY was not set.${NC}"
+    echo -e "${RED}  A new key was generated and saved to:${NC}"
+    echo -e "${RED}    $MASTER_KEY_FILE${NC}"
+    echo -e "${RED}  This key persists as long as the volume is intact.${NC}"
+    echo -e "${RED}  DO NOT USE INSECURE DEFAULTS IN PRODUCTION.${NC}"
+    echo -e "${RED}=====================================================${NC}"
     echo ""
+else
+    echo -e "${RED}=====================================================${NC}"
+    echo -e "${RED}  ERROR: AQUIFER_MASTER_KEY is not set.${NC}"
+    echo -e "${RED}${NC}"
+    echo -e "${RED}  Set it via environment variable:${NC}"
+    echo -e "${RED}    AQUIFER_MASTER_KEY=\$(python -c \"import secrets; print(secrets.token_urlsafe(32))\")${NC}"
+    echo -e "${RED}${NC}"
+    echo -e "${RED}  Or place a key file at: $MASTER_KEY_FILE${NC}"
+    echo -e "${RED}${NC}"
+    echo -e "${RED}  To auto-generate on first run (dev only), set:${NC}"
+    echo -e "${RED}    AQUIFER_ALLOW_INSECURE_DEFAULTS=1${NC}"
+    echo -e "${RED}=====================================================${NC}"
+    exit 1
 fi
 
-if [ -z "${AQUIFER_JWT_SECRET:-}" ]; then
+# ---------------------------------------------------------------------------
+# Resolve AQUIFER_JWT_SECRET
+# ---------------------------------------------------------------------------
+JWT_SECRET_FILE="$DATA_DIR/.jwt_secret"
+JWT_SECRET_SOURCE=""
+
+if [ -n "${AQUIFER_JWT_SECRET:-}" ]; then
+    JWT_SECRET_SOURCE="environment variable"
+elif [ -f "$JWT_SECRET_FILE" ]; then
+    export AQUIFER_JWT_SECRET=$(cat "$JWT_SECRET_FILE")
+    JWT_SECRET_SOURCE="key file ($JWT_SECRET_FILE)"
+elif [ "${AQUIFER_ALLOW_INSECURE_DEFAULTS:-0}" = "1" ]; then
     export AQUIFER_JWT_SECRET=$(python -c "import secrets; print(secrets.token_urlsafe(32))")
-    GENERATED_SECRETS=true
+    printf '%s' "$AQUIFER_JWT_SECRET" > "$JWT_SECRET_FILE"
+    chmod 600 "$JWT_SECRET_FILE"
+    JWT_SECRET_SOURCE="generated + saved to $JWT_SECRET_FILE"
     echo -e "${YELLOW}WARNING: AQUIFER_JWT_SECRET was not set.${NC}"
-    echo -e "${YELLOW}  Auto-generated a random secret for this session.${NC}"
-    echo -e "${YELLOW}  All user sessions will be invalidated on container restart.${NC}"
+    echo -e "${YELLOW}  A new secret was generated and saved to:${NC}"
+    echo -e "${YELLOW}    $JWT_SECRET_FILE${NC}"
+    echo -e "${YELLOW}  Sessions will persist across container restarts.${NC}"
     echo ""
-fi
-
-if [ "$GENERATED_SECRETS" = true ]; then
+else
     echo -e "${RED}=====================================================${NC}"
-    echo -e "${RED}  DO NOT USE AUTO-GENERATED SECRETS IN PRODUCTION!${NC}"
+    echo -e "${RED}  ERROR: AQUIFER_JWT_SECRET is not set.${NC}"
+    echo -e "${RED}${NC}"
+    echo -e "${RED}  Set it via environment variable:${NC}"
+    echo -e "${RED}    AQUIFER_JWT_SECRET=\$(python -c \"import secrets; print(secrets.token_urlsafe(32))\")${NC}"
+    echo -e "${RED}${NC}"
+    echo -e "${RED}  Or place a key file at: $JWT_SECRET_FILE${NC}"
+    echo -e "${RED}${NC}"
+    echo -e "${RED}  To auto-generate on first run (dev only), set:${NC}"
+    echo -e "${RED}    AQUIFER_ALLOW_INSECURE_DEFAULTS=1${NC}"
     echo -e "${RED}=====================================================${NC}"
-    echo ""
-    echo "  Generate persistent secrets with:"
-    echo "    export AQUIFER_MASTER_KEY=\$(python -c \"import secrets; print(secrets.token_urlsafe(32))\")"
-    echo "    export AQUIFER_JWT_SECRET=\$(python -c \"import secrets; print(secrets.token_urlsafe(32))\")"
-    echo ""
-    echo "  Then pass them via docker-compose.yml or 'docker run -e'."
-    echo ""
+    exit 1
 fi
 
 # ---------------------------------------------------------------------------
 # Print configuration summary
 # ---------------------------------------------------------------------------
 echo -e "${GREEN}Configuration:${NC}"
-echo "  Host:      ${AQUIFER_HOST:-0.0.0.0}"
-echo "  Port:      ${AQUIFER_PORT:-8443}"
-echo "  Data dir:  ${AQUIFER_DATA_DIR:-/data/strata}"
-echo "  Debug:     ${AQUIFER_DEBUG:-false}"
-echo "  NER:       ${AQUIFER_USE_NER:-true}"
+echo "  Host:         ${AQUIFER_HOST:-0.0.0.0}"
+echo "  Port:         ${AQUIFER_PORT:-8443}"
+echo "  Data dir:     ${AQUIFER_DATA_DIR:-/data/strata}"
+echo "  Debug:        ${AQUIFER_DEBUG:-false}"
+echo "  NER:          ${AQUIFER_USE_NER:-true}"
+echo "  Master key:   $MASTER_KEY_SOURCE"
+echo "  JWT secret:   $JWT_SECRET_SOURCE"
 echo ""
 
 # ---------------------------------------------------------------------------
-# Ensure data directories exist
+# Ensure data subdirectories exist
 # ---------------------------------------------------------------------------
-DATA_DIR="${AQUIFER_DATA_DIR:-/data/strata}"
 mkdir -p "$DATA_DIR/practices" 2>/dev/null || true
 
 # ---------------------------------------------------------------------------

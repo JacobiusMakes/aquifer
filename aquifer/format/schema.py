@@ -29,6 +29,7 @@ class AQFMetadata(BaseModel):
     cpt_codes: list[str] = Field(default_factory=list)
     year: Optional[int] = None  # Year only per Safe Harbor
     specialty: Optional[str] = None
+    data_domain: Optional[str] = None  # DataDomain value — which domain this file belongs to
 
 
 class AQFTokenEntry(BaseModel):
