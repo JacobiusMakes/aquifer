@@ -23,7 +23,7 @@ class TestLicenseKeyGeneration:
 
     def test_generate_different_tiers(self):
         for tier, prefix in [
-            (Tier.STARTER, "AQ-STAR-"),
+            (Tier.COMMUNITY, "AQ-COMM-"),
             (Tier.PROFESSIONAL, "AQ-PROF-"),
             (Tier.ENTERPRISE, "AQ-ENTE-"),
         ]:
@@ -45,9 +45,9 @@ class TestLicenseValidation:
 
     def test_expired_key(self):
         key = generate_license_key(
-            Tier.STARTER,
+            Tier.PROFESSIONAL,
             "practice-001",
-            date.today() - timedelta(days=1),  # expired yesterday
+            date.today() - timedelta(days=1),
         )
         lic = validate_license_key(key)
         assert not lic.is_valid
@@ -59,7 +59,6 @@ class TestLicenseValidation:
             "practice-001",
             date.today() + timedelta(days=365),
         )
-        # Tamper with the signature
         parts = key.rsplit("-", 1)
         tampered = parts[0] + "-" + "0" * 16
         lic = validate_license_key(tampered)
@@ -86,49 +85,59 @@ class TestLicenseValidation:
 
 
 class TestTierFeatures:
-    def test_community_has_basic_features(self):
+    def test_community_has_full_product(self):
         features = TIER_FEATURES[Tier.COMMUNITY]
         assert "deid" in features
         assert "aqf_read" in features
+        assert "aqf_write" in features
         assert "vault_local" in features
+        assert "vault_cloud" in features
+        assert "api_access" in features
+        assert "dashboard" in features
+        assert "portability" in features
+        assert "form_scanner" in features
+        assert "health_import" in features
+        # Claims intelligence is professional-only
         assert "denial_prediction" not in features
         assert "appeal_generation" not in features
+        assert "claims_intelligence" not in features
 
-    def test_starter_has_claims_tracking(self):
-        features = TIER_FEATURES[Tier.STARTER]
-        assert "claims_tracking" in features
-        assert "unlimited_files" in features
-        assert "denial_prediction" not in features
-
-    def test_professional_has_predictions(self):
+    def test_professional_has_claims_intelligence(self):
         features = TIER_FEATURES[Tier.PROFESSIONAL]
         assert "denial_prediction" in features
         assert "appeal_generation" in features
-        assert "qc_dashboard" in features
-        assert "multi_location" not in features
+        assert "claims_intelligence" in features
+        assert "priority_support" in features
+        assert "advanced_analytics" in features
+        # Enterprise-only
+        assert "sso_saml" not in features
+        assert "white_label" not in features
 
     def test_enterprise_has_everything(self):
         features = TIER_FEATURES[Tier.ENTERPRISE]
-        assert "multi_location" in features
-        assert "cross_practice_analytics" in features
-        assert "custom_ner" in features
-        assert "api_access" in features
+        assert "sso_saml" in features
+        assert "dedicated_infrastructure" in features
+        assert "sla" in features
+        assert "custom_integrations" in features
+        assert "white_label" in features
+        # Also has all professional features
+        assert "denial_prediction" in features
+        assert "claims_intelligence" in features
 
     def test_each_tier_is_superset_of_previous(self):
-        tiers = [Tier.COMMUNITY, Tier.STARTER, Tier.PROFESSIONAL, Tier.ENTERPRISE]
+        tiers = [Tier.COMMUNITY, Tier.PROFESSIONAL, Tier.ENTERPRISE]
         for i in range(1, len(tiers)):
             assert TIER_FEATURES[tiers[i - 1]].issubset(TIER_FEATURES[tiers[i]]), \
                 f"{tiers[i].value} should be superset of {tiers[i-1].value}"
 
 
 class TestFileLimits:
-    def test_community_has_limit(self):
-        assert TIER_FILE_LIMITS[Tier.COMMUNITY] == 100
+    def test_community_unlimited(self):
+        assert TIER_FILE_LIMITS[Tier.COMMUNITY] is None
 
-    def test_paid_tiers_unlimited(self):
-        assert TIER_FILE_LIMITS[Tier.STARTER] is None
-        assert TIER_FILE_LIMITS[Tier.PROFESSIONAL] is None
-        assert TIER_FILE_LIMITS[Tier.ENTERPRISE] is None
+    def test_all_tiers_unlimited(self):
+        for tier in Tier:
+            assert TIER_FILE_LIMITS[tier] is None
 
 
 class TestFeatureGating:
@@ -139,7 +148,7 @@ class TestFeatureGating:
         lic = validate_license_key(key)
         assert lic.has_feature("denial_prediction")
         assert lic.has_feature("deid")
-        assert not lic.has_feature("multi_location")
+        assert not lic.has_feature("sso_saml")
 
     def test_expired_license_has_no_features(self):
         key = generate_license_key(
