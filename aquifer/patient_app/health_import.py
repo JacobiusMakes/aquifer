@@ -216,6 +216,9 @@ def parse_fhir_bundle(json_content: str) -> list[HealthRecord]:
     if not isinstance(entries, list):
         # Some bundles are a single resource, not a bundle
         entries = [{"resource": bundle}]
+    elif not entries and bundle.get("resourceType") and bundle.get("resourceType") != "Bundle":
+        # Bare resource (not wrapped in a Bundle) — treat as single entry
+        entries = [{"resource": bundle}]
 
     records: list[HealthRecord] = []
 

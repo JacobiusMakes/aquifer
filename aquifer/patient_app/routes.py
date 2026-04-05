@@ -264,6 +264,182 @@ async def share_email(body: ShareEmailRequest, request: Request):
 
 
 # ---------------------------------------------------------------------------
+# Health data import endpoints
+# ---------------------------------------------------------------------------
+
+class ImportAppleHealthResponse(BaseModel):
+    records_imported: int
+    source: str = "apple_health"
+
+
+class ImportFHIRResponse(BaseModel):
+    records_imported: int
+    source: str = "fhir"
+
+
+class ImportManualRequest(BaseModel):
+    share_key: str
+    data: dict
+
+
+class ImportManualResponse(BaseModel):
+    records_imported: int
+    source: str = "manual"
+
+
+class HealthRecordsResponse(BaseModel):
+    patient_id: str
+    records: list[dict]
+    count: int
+
+
+@router.post("/import/apple-health", response_model=ImportAppleHealthResponse)
+async def import_apple_health(
+    request: Request,
+    file: UploadFile = File(...),
+    share_key: str | None = None,
+):
+    """Upload an Apple Health export XML file.
+
+    Parses the XML, extracts clinical records and vitals, and stores them
+    as patient-owned health records in the vault.
+    """
+    from aquifer.patient_app.health_import import parse_apple_health
+
+    key = share_key or request.headers.get("X-Share-Key", "")
+    if not key:
+        raise HTTPException(400, "Share key required (X-Share-Key header or share_key field)")
+
+    patient = _resolve_patient(key, request.app.state.db)
+    hub = request.app.state.patient_hub
+
+    content = await file.read()
+    try:
+        xml_text = content.decode("utf-8")
+    except UnicodeDecodeError:
+        raise HTTPException(422, "File must be valid UTF-8 XML")
+
+    records = parse_apple_health(xml_text)
+    if not records:
+        raise HTTPException(422, "No health records found in the uploaded file")
+
+    count = hub.import_health_records(patient["id"], records)
+
+    request.app.state.db.log_audit(
+        practice_id="patient_app",
+        action="patient_app.import_apple_health",
+        resource_type="patient",
+        resource_id=patient["id"],
+        detail=f"records_imported={count}",
+    )
+
+    return ImportAppleHealthResponse(records_imported=count)
+
+
+@router.post("/import/fhir", response_model=ImportFHIRResponse)
+async def import_fhir(
+    request: Request,
+    file: UploadFile = File(...),
+    share_key: str | None = None,
+):
+    """Upload a FHIR R4 Bundle JSON file.
+
+    Parses the bundle, extracts Patient demographics, Conditions,
+    Medications, Allergies, Observations, Immunizations, and Coverage,
+    then stores them as patient-owned health records.
+    """
+    from aquifer.patient_app.health_import import parse_fhir_bundle
+
+    key = share_key or request.headers.get("X-Share-Key", "")
+    if not key:
+        raise HTTPException(400, "Share key required (X-Share-Key header or share_key field)")
+
+    patient = _resolve_patient(key, request.app.state.db)
+    hub = request.app.state.patient_hub
+
+    content = await file.read()
+    try:
+        json_text = content.decode("utf-8")
+    except UnicodeDecodeError:
+        raise HTTPException(422, "File must be valid UTF-8 JSON")
+
+    records = parse_fhir_bundle(json_text)
+    if not records:
+        raise HTTPException(422, "No health records found in the uploaded file")
+
+    count = hub.import_health_records(patient["id"], records)
+
+    request.app.state.db.log_audit(
+        practice_id="patient_app",
+        action="patient_app.import_fhir",
+        resource_type="patient",
+        resource_id=patient["id"],
+        detail=f"records_imported={count}",
+    )
+
+    return ImportFHIRResponse(records_imported=count)
+
+
+@router.post("/import/manual", response_model=ImportManualResponse)
+async def import_manual(body: ImportManualRequest, request: Request):
+    """Submit health data as a structured JSON dict.
+
+    Accepts fields: name, dob, phone, email, address, insurance_carrier,
+    insurance_member_id, medications (list), allergies (list), conditions (list).
+    """
+    from aquifer.patient_app.health_import import from_manual_entry
+
+    patient = _resolve_patient(body.share_key, request.app.state.db)
+    hub = request.app.state.patient_hub
+
+    records = from_manual_entry(body.data)
+    if not records:
+        raise HTTPException(422, "No valid fields found in the submitted data")
+
+    count = hub.import_health_records(patient["id"], records)
+
+    request.app.state.db.log_audit(
+        practice_id="patient_app",
+        action="patient_app.import_manual",
+        resource_type="patient",
+        resource_id=patient["id"],
+        detail=f"records_imported={count}",
+    )
+
+    return ImportManualResponse(records_imported=count)
+
+
+@router.post("/health-records", response_model=HealthRecordsResponse)
+async def get_health_records(body: MyDataRequest, request: Request):
+    """Retrieve stored health records for a patient.
+
+    Requires share key. Optional OTP for full decrypted values.
+    Without OTP, values are masked.
+    """
+    hub = request.app.state.patient_hub
+    db = request.app.state.db
+
+    patient = _resolve_patient(body.share_key, db)
+    patient_id = patient["id"]
+
+    otp_verified = False
+    if body.otp:
+        otp_verified = hub.verify_patient(patient_id, body.otp)
+
+    records = hub.get_health_records(patient_id, decrypt=otp_verified)
+    if not otp_verified:
+        for r in records:
+            if "value" in r:
+                r["value"] = _mask_value(r["value"])
+
+    return HealthRecordsResponse(
+        patient_id=patient_id,
+        records=records,
+        count=len(records),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
 
