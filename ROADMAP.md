@@ -26,7 +26,7 @@ Aquifer's core is a production-grade HIPAA de-identification pipeline covering a
 - Strata API server (FastAPI) with JWT and API key authentication, strict multi-tenant practice isolation
 - Web dashboard for QC review of de-identified output
 - Docker support with multi-stage production builds
-- 382 automated tests with CI across Python 3.11, 3.12, and 3.13
+- 569 automated tests with CI across Python 3.11, 3.12, and 3.13
 - Apache 2.0 license
 
 **Healthcare impact:**
@@ -37,7 +37,7 @@ Every medical and dental practice is currently required to apply enterprise-grad
 
 ## Phase B — Patient Data Portability
 
-**Status: In progress**
+**Status: Complete**
 
 This is the highest-priority phase. The de-identification engine solves a compliance problem for practices. Patient data portability solves a friction problem for patients — and in doing so, creates a network that makes Aquifer compellingly valuable to every practice that joins.
 
@@ -53,13 +53,13 @@ Aquifer's vault architecture is already designed for secure, patient-linked reco
 - Form scanner and auto-fill for paper intake forms at non-Aquifer practices — BUILT
 - Patient data summary and email-to-practice sharing — BUILT
 
-**Planned work:**
+**All planned Phase B work has been completed:**
 
-- Cross-practice consent management: patient authorizes specific practices to receive their records
-- Secure inter-practice data transfer: vault-to-vault re-encryption so PHI is never transmitted in the clear and never stored outside a compliant vault
-- Selective scope sharing: patients choose which data categories travel — demographics, insurance, clinical notes, dental history — not all-or-nothing
-- Transfer audit trail: immutable log of who shared what, when, under which consent record
-- Patient consent revocation: immediate effect, logged, with downstream practices notified
+- Cross-practice consent management: patient authorizes specific practices to receive their records — BUILT
+- Secure inter-practice data transfer: vault-to-vault re-encryption so PHI is never transmitted in the clear and never stored outside a compliant vault — BUILT
+- Selective scope sharing: patients choose which data categories travel — demographics, insurance, clinical notes, dental history — not all-or-nothing — BUILT
+- Transfer audit trail: immutable log of who shared what, when, under which consent record — BUILT
+- Patient consent revocation: immediate effect, logged, with downstream practices notified — BUILT
 
 **Healthcare impact:**
 
@@ -87,14 +87,15 @@ Phase C extends the patient identity with richer health data — both imported f
 
 **Shipped:**
 
-- FHIR R4 (MyChart/Epic) health data import — BUILT (parser ready)
-- Manual structured health data entry — BUILT
+- FHIR R4 (MyChart/Epic) health data import — BUILT (parser + API endpoints)
+- Apple Health import (HealthKit XML) — BUILT (parser + upload endpoint)
+- Manual structured health data entry — BUILT (API endpoint)
+- Health records retrieval with OTP-gated decryption — BUILT
+- QR code check-in: practice generates QR, patient scans and enters share key, records flow automatically — BUILT
 
 **Planned work:**
 
-- Apple Health import (HealthKit XML)
 - Patient mobile PWA (progressive web app)
-- QR code check-in: patient scans a practice's QR code on arrival, consent is confirmed, and structured intake data flows automatically to the practice's system
 
 **Healthcare impact:**
 
@@ -205,8 +206,8 @@ These items are on a longer horizon, contingent on the foundation established in
 | Phase | Status | Timeline | Primary Deliverable |
 |-------|--------|----------|---------------------|
 | A | Complete | -- | Core engine, API server, CLI, Docker |
-| B | In progress | -- | Patient share key, tap-to-pull, form scanner, check-in dashboard |
-| C | Planned | 4-8 weeks | Apple Health import, FHIR import, patient mobile PWA, QR check-in |
+| B | Complete | -- | Patient share key, tap-to-pull, form scanner, consent, transfer, check-in |
+| C | In progress | 4-8 weeks | Apple Health import, FHIR import, QR check-in (done); patient mobile PWA (planned) |
 | D | Planned | 4-6 weeks | Audit logging, rate limiting, email verification |
 | E | Planned | 6-8 weeks | Local-cloud vault sync, offline-first operation |
 | F | Planned | 8-12 weeks | PostgreSQL, FHIR bridge, cross-practice analytics |
