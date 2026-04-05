@@ -29,7 +29,7 @@ from aquifer.strata.database import StrataDB
 from aquifer.strata.patient_hub import PatientHub
 from aquifer.strata.responses import http_exception_handler
 from aquifer.strata.routes import auth_routes, audit_routes, deid_routes, files_routes, vault_routes, practice_routes, dashboard_routes
-from aquifer.strata.routes import patient_routes
+from aquifer.strata.routes import patient_routes, checkin_routes
 from aquifer.patient_app import routes as patient_app_routes
 
 logger = logging.getLogger(__name__)
@@ -50,6 +50,9 @@ PATIENT_APP_PREFIX = "/api/v1/patient/"
 
 # Dashboard paths use cookie-based auth (handled in dashboard_routes)
 DASHBOARD_PATHS_PREFIX = "/dashboard"
+
+# QR check-in pages are public (patient-facing, share-key auth)
+CHECKIN_PREFIX = "/checkin"
 
 
 def _check_ner_available() -> bool:
@@ -180,7 +183,8 @@ def create_app(config: StrataConfig | None = None) -> FastAPI:
         if (request.url.path in PUBLIC_PATHS
                 or request.url.path.startswith("/docs")
                 or request.url.path.startswith(DASHBOARD_PATHS_PREFIX)
-                or request.url.path.startswith(PATIENT_APP_PREFIX)):
+                or request.url.path.startswith(PATIENT_APP_PREFIX)
+                or request.url.path.startswith(CHECKIN_PREFIX)):
             return await call_next(request)
 
         # Skip auth for OPTIONS (CORS preflight)
@@ -245,6 +249,9 @@ def create_app(config: StrataConfig | None = None) -> FastAPI:
 
     # --- Dashboard (web UI) ---
     app.include_router(dashboard_routes.router)
+
+    # --- QR Check-in (patient-facing, public) ---
+    app.include_router(checkin_routes.router)
 
     # --- Health Check ---
     @app.get("/api/v1/health")
