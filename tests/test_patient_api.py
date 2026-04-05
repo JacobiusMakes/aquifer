@@ -293,3 +293,84 @@ class TestPatientAPI:
         assert len(data) == 1
         assert data[0]["patient_id"] == patient["patient_id"]
         assert data[0]["status"] == "pending"
+
+
+# ---------------------------------------------------------------------------
+# TestPullRecords
+# ---------------------------------------------------------------------------
+
+class TestPullRecords:
+    def test_pull_records_with_share_key(self, client):
+        """Full pull workflow: register 2 practices, register patient at A, pull into B."""
+        reg_a = register_and_login(client, practice_name="Source Dental", email="pull-src@example.com")
+        reg_b = register_and_login(client, practice_name="Target Dental", email="pull-tgt@example.com")
+        headers_a = auth_headers(reg_a["token"])
+        headers_b = auth_headers(reg_b["token"])
+
+        # Register and verify patient using practice A
+        patient = _register_patient(client, headers_a, email="pull-patient@example.com")
+        otp = _generate_otp(client, headers_a, patient["patient_id"])
+        verify = _verify_patient(client, headers_a, patient["patient_id"], otp)
+        assert verify["verified"] is True
+        share_key = verify.get("share_key")
+        assert share_key is not None
+
+        # Link patient to practice A
+        client.post(
+            f"/api/v1/patients/{patient['patient_id']}/link",
+            json={"source_file_hashes": ""},
+            headers=headers_a,
+        )
+
+        # Pull records into practice B using share key
+        resp = client.post("/api/v1/patients/pull", json={
+            "share_key": share_key,
+        }, headers=headers_b)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "patient_email_masked" in data
+        assert "transfers" in data
+        assert "total_tokens" in data
+        # With no vault tokens stored, we get 0 tokens but the flow completes
+        assert data["total_tokens"] == 0
+
+    def test_pull_records_invalid_share_key(self, client):
+        reg = register_and_login(client, practice_name="Pull Invalid", email="pull-inv@example.com")
+        headers = auth_headers(reg["token"])
+
+        resp = client.post("/api/v1/patients/pull", json={
+            "share_key": "AQ-ZZZZ-ZZZZ",
+        }, headers=headers)
+        assert resp.status_code == 404
+
+    def test_pull_records_bad_format(self, client):
+        reg = register_and_login(client, practice_name="Pull Bad", email="pull-bad@example.com")
+        headers = auth_headers(reg["token"])
+
+        resp = client.post("/api/v1/patients/pull", json={
+            "share_key": "INVALID-KEY",
+        }, headers=headers)
+        assert resp.status_code == 422
+
+    def test_pull_records_with_practice_type(self, client):
+        reg_a = register_and_login(client, practice_name="Pull Type Src", email="pt-src@example.com")
+        reg_b = register_and_login(client, practice_name="Pull Type Tgt", email="pt-tgt@example.com")
+        headers_a = auth_headers(reg_a["token"])
+        headers_b = auth_headers(reg_b["token"])
+
+        patient = _register_patient(client, headers_a, email="pull-type@example.com")
+        otp = _generate_otp(client, headers_a, patient["patient_id"])
+        verify = _verify_patient(client, headers_a, patient["patient_id"], otp)
+        share_key = verify["share_key"]
+
+        client.post(
+            f"/api/v1/patients/{patient['patient_id']}/link",
+            json={"source_file_hashes": ""},
+            headers=headers_a,
+        )
+
+        resp = client.post("/api/v1/patients/pull", json={
+            "share_key": share_key,
+            "practice_type": "dental",
+        }, headers=headers_b)
+        assert resp.status_code == 200
