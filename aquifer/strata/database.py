@@ -31,6 +31,11 @@ CREATE TABLE IF NOT EXISTS users (
     password_hash TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'user',
     is_active INTEGER NOT NULL DEFAULT 1,
+    email_verified INTEGER NOT NULL DEFAULT 0,
+    verification_token TEXT,
+    verification_token_expires TIMESTAMP,
+    password_reset_token TEXT,
+    password_reset_expires TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -394,6 +399,48 @@ class StrataDB:
         )
         self.conn.commit()
         return cursor.rowcount > 0
+
+    def set_verification_token(self, user_id: str, token: str, expires_at: str) -> None:
+        self.conn.execute(
+            "UPDATE users SET verification_token = ?, verification_token_expires = ? WHERE id = ?",
+            (token, expires_at, user_id),
+        )
+        self.conn.commit()
+
+    def verify_user_email(self, user_id: str) -> bool:
+        cursor = self.conn.execute(
+            "UPDATE users SET email_verified = 1, verification_token = NULL, "
+            "verification_token_expires = NULL WHERE id = ?",
+            (user_id,),
+        )
+        self.conn.commit()
+        return cursor.rowcount > 0
+
+    def get_user_by_verification_token(self, token: str) -> dict | None:
+        row = self.conn.execute(
+            "SELECT * FROM users WHERE verification_token = ?", (token,),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def set_password_reset_token(self, user_id: str, token: str, expires_at: str) -> None:
+        self.conn.execute(
+            "UPDATE users SET password_reset_token = ?, password_reset_expires = ? WHERE id = ?",
+            (token, expires_at, user_id),
+        )
+        self.conn.commit()
+
+    def get_user_by_reset_token(self, token: str) -> dict | None:
+        row = self.conn.execute(
+            "SELECT * FROM users WHERE password_reset_token = ?", (token,),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def clear_reset_token(self, user_id: str) -> None:
+        self.conn.execute(
+            "UPDATE users SET password_reset_token = NULL, password_reset_expires = NULL WHERE id = ?",
+            (user_id,),
+        )
+        self.conn.commit()
 
     def update_practice_vault_key(self, practice_id: str, vault_key_encrypted: str) -> None:
         self.conn.execute(

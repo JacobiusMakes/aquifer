@@ -1,9 +1,11 @@
-"""Authentication routes: register, login, API key management."""
+"""Authentication routes: register, login, API key management, email verification, password management."""
 
 from __future__ import annotations
 
 import re
+import secrets
 import uuid
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, EmailStr, field_validator
@@ -154,6 +156,29 @@ async def register(body: RegisterRequest, request: Request):
         config.jwt_secret, expiry_hours=config.jwt_expiry_hours,
     )
 
+    # Generate email verification token
+    verification_token = secrets.token_urlsafe(32)
+    expires_at = (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat()
+    db.set_verification_token(user_id, verification_token, expires_at)
+
+    # Send verification email if SMTP is configured
+    email_config = getattr(app.state, "email_config", None)
+    if email_config and email_config.enabled:
+        from aquifer.strata.notifications import send_notification
+        base_url = str(request.base_url).rstrip("/")
+        verify_url = f"{base_url}/api/v1/auth/verify-email?token={verification_token}"
+        send_notification(
+            email_config,
+            to=body.email,
+            subject="Aquifer — Verify your email",
+            body=(
+                f"Welcome to Aquifer!\n\n"
+                f"Click the link below to verify your email:\n{verify_url}\n\n"
+                f"This link expires in 24 hours.\n\n"
+                f"If you didn't create this account, you can ignore this email."
+            ),
+        )
+
     db.log_usage(practice_id, "register", user_id=user_id)
 
     return RegisterResponse(
@@ -235,3 +260,203 @@ async def revoke_api_key(key_id: str, request: Request):
         raise HTTPException(404, "API key not found")
 
     db.log_usage(auth.practice_id, "revoke_api_key", user_id=auth.user_id)
+
+
+# --- Email Verification ---
+
+@router.get("/verify-email")
+async def verify_email(token: str, request: Request):
+    """Verify a user's email address using the token sent during registration."""
+    db = request.app.state.db
+
+    user = db.get_user_by_verification_token(token)
+    if not user:
+        raise HTTPException(400, "Invalid or expired verification token")
+
+    # Check expiry
+    if user["verification_token_expires"]:
+        try:
+            expires = datetime.fromisoformat(str(user["verification_token_expires"]))
+            if expires.tzinfo is None:
+                expires = expires.replace(tzinfo=timezone.utc)
+            if datetime.now(timezone.utc) > expires:
+                raise HTTPException(400, "Verification token has expired. Please request a new one.")
+        except (ValueError, TypeError):
+            raise HTTPException(400, "Invalid verification token")
+
+    db.verify_user_email(user["id"])
+
+    return {"message": "Email verified successfully. You can now log in.", "verified": True}
+
+
+@router.post("/resend-verification")
+async def resend_verification(request: Request):
+    """Resend the email verification link. Requires authentication."""
+    auth: AuthContext = request.state.auth
+    db = request.app.state.db
+
+    user = db.get_user(auth.user_id)
+    if not user:
+        raise HTTPException(404, "User not found")
+
+    if user["email_verified"]:
+        return {"message": "Email is already verified"}
+
+    verification_token = secrets.token_urlsafe(32)
+    expires_at = (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat()
+    db.set_verification_token(user["id"], verification_token, expires_at)
+
+    email_config = getattr(request.app.state, "email_config", None)
+    if email_config and email_config.enabled:
+        from aquifer.strata.notifications import send_notification
+        base_url = str(request.base_url).rstrip("/")
+        verify_url = f"{base_url}/api/v1/auth/verify-email?token={verification_token}"
+        send_notification(
+            email_config,
+            to=user["email"],
+            subject="Aquifer — Verify your email",
+            body=(
+                f"Click the link below to verify your email:\n{verify_url}\n\n"
+                f"This link expires in 24 hours."
+            ),
+        )
+
+    return {"message": "Verification email sent", "token": verification_token}
+
+
+# --- Password Management ---
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+    @field_validator("new_password")
+    @classmethod
+    def validate_new_password(cls, v: str) -> str:
+        if len(v) < 10:
+            raise ValueError("Password must be at least 10 characters")
+        if not any(c.isupper() for c in v):
+            raise ValueError("Password must contain at least one uppercase letter")
+        if not any(c.islower() for c in v):
+            raise ValueError("Password must contain at least one lowercase letter")
+        if not any(c.isdigit() for c in v):
+            raise ValueError("Password must contain at least one digit")
+        return v
+
+
+class RequestResetRequest(BaseModel):
+    email: str
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
+
+    @field_validator("new_password")
+    @classmethod
+    def validate_new_password(cls, v: str) -> str:
+        if len(v) < 10:
+            raise ValueError("Password must be at least 10 characters")
+        if not any(c.isupper() for c in v):
+            raise ValueError("Password must contain at least one uppercase letter")
+        if not any(c.islower() for c in v):
+            raise ValueError("Password must contain at least one lowercase letter")
+        if not any(c.isdigit() for c in v):
+            raise ValueError("Password must contain at least one digit")
+        return v
+
+
+@router.post("/change-password")
+async def change_password(body: ChangePasswordRequest, request: Request):
+    """Change the current user's password. Requires authentication."""
+    auth: AuthContext = request.state.auth
+    db = request.app.state.db
+
+    user = db.get_user(auth.user_id)
+    if not user:
+        raise HTTPException(404, "User not found")
+
+    if not verify_password(body.current_password, user["password_hash"]):
+        raise HTTPException(401, "Current password is incorrect")
+
+    if body.current_password == body.new_password:
+        raise HTTPException(400, "New password must be different from current password")
+
+    db.update_user_password(user["id"], hash_password(body.new_password))
+
+    db.log_audit(
+        practice_id=auth.practice_id,
+        action="user.password_changed",
+        resource_type="user",
+        resource_id=auth.user_id,
+        user_id=auth.user_id,
+    )
+
+    return {"message": "Password changed successfully"}
+
+
+@router.post("/request-reset")
+async def request_password_reset(body: RequestResetRequest, request: Request):
+    """Request a password reset. Sends a reset token via email.
+
+    Always returns 200 to prevent email enumeration attacks.
+    """
+    db = request.app.state.db
+    user = db.get_user_by_email(body.email.lower().strip())
+
+    if user:
+        reset_token = secrets.token_urlsafe(32)
+        expires_at = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+        db.set_password_reset_token(user["id"], reset_token, expires_at)
+
+        email_config = getattr(request.app.state, "email_config", None)
+        if email_config and email_config.enabled:
+            from aquifer.strata.notifications import send_notification
+            send_notification(
+                email_config,
+                to=user["email"],
+                subject="Aquifer — Password reset",
+                body=(
+                    f"A password reset was requested for your Aquifer account.\n\n"
+                    f"Your reset token: {reset_token}\n\n"
+                    f"This token expires in 1 hour.\n\n"
+                    f"If you didn't request this, you can ignore this email."
+                ),
+            )
+
+    # Always return success to prevent email enumeration
+    return {"message": "If that email exists, a reset link has been sent"}
+
+
+@router.post("/reset-password")
+async def reset_password(body: ResetPasswordRequest, request: Request):
+    """Reset password using a token from request-reset."""
+    db = request.app.state.db
+
+    user = db.get_user_by_reset_token(body.token)
+    if not user:
+        raise HTTPException(400, "Invalid or expired reset token")
+
+    # Check expiry
+    if user["password_reset_expires"]:
+        try:
+            expires = datetime.fromisoformat(str(user["password_reset_expires"]))
+            if expires.tzinfo is None:
+                expires = expires.replace(tzinfo=timezone.utc)
+            if datetime.now(timezone.utc) > expires:
+                db.clear_reset_token(user["id"])
+                raise HTTPException(400, "Reset token has expired. Please request a new one.")
+        except (ValueError, TypeError):
+            raise HTTPException(400, "Invalid reset token")
+
+    db.update_user_password(user["id"], hash_password(body.new_password))
+    db.clear_reset_token(user["id"])
+
+    db.log_audit(
+        practice_id=user["practice_id"],
+        action="user.password_reset",
+        resource_type="user",
+        resource_id=user["id"],
+    )
+
+    return {"message": "Password reset successfully. You can now log in with your new password."}

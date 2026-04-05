@@ -39,6 +39,9 @@ _ALLOW_INSECURE_BOOT = os.getenv("AQUIFER_ALLOW_INSECURE_BOOT", "").lower() in {
 PUBLIC_PATHS = {
     "/api/v1/auth/register",
     "/api/v1/auth/login",
+    "/api/v1/auth/verify-email",
+    "/api/v1/auth/request-reset",
+    "/api/v1/auth/reset-password",
     "/api/v1/health",
     "/docs",
     "/openapi.json",
