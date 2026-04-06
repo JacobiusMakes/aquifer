@@ -31,6 +31,7 @@ from aquifer.strata.responses import http_exception_handler
 from aquifer.strata.routes import auth_routes, audit_routes, deid_routes, files_routes, vault_routes, practice_routes, dashboard_routes
 from aquifer.strata.routes import patient_routes, checkin_routes
 from aquifer.patient_app import routes as patient_app_routes
+from aquifer.analytics import routes as analytics_routes
 from aquifer.fhir import routes as fhir_routes
 
 logger = logging.getLogger(__name__)
@@ -263,6 +264,9 @@ def create_app(config: StrataConfig | None = None) -> FastAPI:
 
     # --- Dashboard (web UI) ---
     app.include_router(dashboard_routes.router)
+
+    # --- Cross-Practice Analytics ---
+    app.include_router(analytics_routes.router, prefix="/api/v1")
 
     # --- FHIR Bridge (EHR integration) ---
     app.include_router(fhir_routes.router, prefix="/api/v1")
