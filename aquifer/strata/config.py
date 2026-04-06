@@ -28,6 +28,10 @@ class StrataConfig:
     # Database (server metadata: users, practices, API keys, usage)
     db_path: Path = Path("./strata_data/strata.db")
 
+    # PostgreSQL connection URL. When set, uses PostgreSQL instead of SQLite.
+    # Format: postgresql://user:password@host:port/dbname
+    database_url: str = ""
+
     # Master encryption key for server-managed vault keys.
     # In production: load from HSM, KMS, or env var. NEVER hardcode.
     master_key: str = ""
@@ -64,6 +68,7 @@ class StrataConfig:
         cfg.debug = os.getenv("AQUIFER_DEBUG", "").lower() in ("1", "true", "yes")
         cfg.data_dir = Path(os.getenv("AQUIFER_DATA_DIR", str(cfg.data_dir)))
         cfg.db_path = Path(os.getenv("AQUIFER_DB_PATH", str(cfg.data_dir / "strata.db")))
+        cfg.database_url = os.getenv("AQUIFER_DATABASE_URL", "")
         cfg.master_key = os.getenv("AQUIFER_MASTER_KEY", "")
         cfg.previous_master_key = os.getenv("AQUIFER_PREVIOUS_MASTER_KEY", "")
         cfg.jwt_secret = os.getenv("AQUIFER_JWT_SECRET", "")

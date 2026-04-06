@@ -92,7 +92,12 @@ def create_app(config: StrataConfig | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         # Startup
-        db = StrataDB(config.db_path)
+        if config.database_url:
+            from aquifer.strata.db_postgres import PostgresDB
+            db = PostgresDB(config.database_url)
+            logger.info("Using PostgreSQL database: %s", config.database_url.split("@")[-1] if "@" in config.database_url else "configured")
+        else:
+            db = StrataDB(config.db_path)
         db.connect()
         app.state.db = db
         app.state.config = config
