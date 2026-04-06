@@ -31,6 +31,7 @@ from aquifer.strata.responses import http_exception_handler
 from aquifer.strata.routes import auth_routes, audit_routes, deid_routes, files_routes, vault_routes, practice_routes, dashboard_routes
 from aquifer.strata.routes import patient_routes, checkin_routes
 from aquifer.patient_app import routes as patient_app_routes
+from aquifer.fhir import routes as fhir_routes
 
 logger = logging.getLogger(__name__)
 _ALLOW_INSECURE_BOOT = os.getenv("AQUIFER_ALLOW_INSECURE_BOOT", "").lower() in {"1", "true", "yes"}
@@ -42,6 +43,7 @@ PUBLIC_PATHS = {
     "/api/v1/auth/verify-email",
     "/api/v1/auth/request-reset",
     "/api/v1/auth/reset-password",
+    "/api/v1/fhir/metadata",
     "/api/v1/health",
     "/docs",
     "/openapi.json",
@@ -261,6 +263,9 @@ def create_app(config: StrataConfig | None = None) -> FastAPI:
 
     # --- Dashboard (web UI) ---
     app.include_router(dashboard_routes.router)
+
+    # --- FHIR Bridge (EHR integration) ---
+    app.include_router(fhir_routes.router, prefix="/api/v1")
 
     # --- QR Check-in (patient-facing, public) ---
     app.include_router(checkin_routes.router)
