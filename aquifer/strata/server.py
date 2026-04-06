@@ -18,7 +18,7 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, Request, Response, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -99,6 +99,10 @@ def create_app(config: StrataConfig | None = None) -> FastAPI:
         app.state.vault_manager = CloudVaultManager(config)
         app.state.email_config = config.email
         app.state.patient_hub = PatientHub(db, app.state.vault_manager, config)
+
+        # Job runner for async batch processing
+        from aquifer.strata.jobs import JobRunner
+        app.state.job_runner = JobRunner(db, app.state.vault_manager, config)
 
         # Check optional feature availability
         ner_available = _check_ner_available()
@@ -265,6 +269,64 @@ def create_app(config: StrataConfig | None = None) -> FastAPI:
             "version": __version__,
             "service": "aquifer-strata",
         }
+
+    # --- WebSocket: Job Progress ---
+    @app.websocket("/ws/jobs/{job_id}")
+    async def ws_job_progress(websocket: WebSocket, job_id: str):
+        """Real-time progress updates for a batch de-identification job.
+
+        Connect with: ws://host/ws/jobs/{job_id}
+        Receives JSON messages with job progress until the job completes.
+        """
+        import asyncio
+
+        db = app.state.db
+        job = db.get_job(job_id)
+        if not job:
+            await websocket.close(code=4004, reason="Job not found")
+            return
+
+        await websocket.accept()
+        job_runner = app.state.job_runner
+        queue = job_runner.subscribe(job_id)
+
+        try:
+            # Send current state immediately
+            total = job["total_files"]
+            done = job["completed_files"] + job["failed_files"]
+            await websocket.send_json({
+                "job_id": job_id,
+                "status": job["status"],
+                "total_files": total,
+                "completed_files": job["completed_files"],
+                "failed_files": job["failed_files"],
+                "current_file": job["current_file"],
+                "percent": round(done / total * 100, 1) if total > 0 else 100.0,
+            })
+
+            # If already done, close
+            if job["status"] in ("completed", "failed"):
+                await websocket.close()
+                return
+
+            # Stream updates
+            while True:
+                try:
+                    msg = await asyncio.wait_for(queue.get(), timeout=30.0)
+                    await websocket.send_json(msg)
+                    if msg.get("status") in ("completed", "failed"):
+                        break
+                except asyncio.TimeoutError:
+                    # Send heartbeat to keep connection alive
+                    await websocket.send_json({"heartbeat": True})
+        except Exception:
+            pass
+        finally:
+            job_runner.unsubscribe(job_id, queue)
+            try:
+                await websocket.close()
+            except Exception:
+                pass
 
     # --- Error Handlers ---
     from fastapi import HTTPException as _HTTPException

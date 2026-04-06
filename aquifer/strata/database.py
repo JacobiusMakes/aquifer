@@ -175,6 +175,25 @@ CREATE TABLE IF NOT EXISTS patient_health_data (
 CREATE INDEX IF NOT EXISTS idx_health_data_patient ON patient_health_data(patient_id);
 CREATE INDEX IF NOT EXISTS idx_health_data_domain ON patient_health_data(domain);
 
+CREATE TABLE IF NOT EXISTS jobs (
+    id TEXT PRIMARY KEY,
+    practice_id TEXT NOT NULL REFERENCES practices(id),
+    user_id TEXT NOT NULL,
+    job_type TEXT NOT NULL DEFAULT 'batch_deid',
+    status TEXT NOT NULL DEFAULT 'pending',
+    total_files INTEGER NOT NULL DEFAULT 0,
+    completed_files INTEGER NOT NULL DEFAULT 0,
+    failed_files INTEGER NOT NULL DEFAULT 0,
+    current_file TEXT,
+    error_message TEXT,
+    result_json TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    started_at TIMESTAMP,
+    completed_at TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_jobs_practice ON jobs(practice_id);
+CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
+
 -- Migrations for existing databases
 CREATE INDEX IF NOT EXISTS idx_files_data_domain ON processed_files(data_domain);
 """
@@ -441,6 +460,63 @@ class StrataDB:
             (user_id,),
         )
         self.conn.commit()
+
+    # --- Jobs ---
+
+    def create_job(self, id: str, practice_id: str, user_id: str,
+                   job_type: str, total_files: int) -> dict:
+        self.conn.execute(
+            """INSERT INTO jobs (id, practice_id, user_id, job_type, total_files)
+            VALUES (?, ?, ?, ?, ?)""",
+            (id, practice_id, user_id, job_type, total_files),
+        )
+        self.conn.commit()
+        return self.get_job(id)
+
+    def get_job(self, id: str) -> dict | None:
+        row = self.conn.execute("SELECT * FROM jobs WHERE id = ?", (id,)).fetchone()
+        return dict(row) if row else None
+
+    def update_job_progress(self, id: str, completed_files: int = None,
+                            failed_files: int = None, current_file: str = None,
+                            status: str = None, error_message: str = None,
+                            result_json: str = None) -> None:
+        updates = []
+        params = []
+        if completed_files is not None:
+            updates.append("completed_files = ?")
+            params.append(completed_files)
+        if failed_files is not None:
+            updates.append("failed_files = ?")
+            params.append(failed_files)
+        if current_file is not None:
+            updates.append("current_file = ?")
+            params.append(current_file)
+        if status is not None:
+            updates.append("status = ?")
+            params.append(status)
+            if status == "processing":
+                updates.append("started_at = CURRENT_TIMESTAMP")
+            elif status in ("completed", "failed"):
+                updates.append("completed_at = CURRENT_TIMESTAMP")
+        if error_message is not None:
+            updates.append("error_message = ?")
+            params.append(error_message)
+        if result_json is not None:
+            updates.append("result_json = ?")
+            params.append(result_json)
+        if not updates:
+            return
+        params.append(id)
+        self.conn.execute(f"UPDATE jobs SET {', '.join(updates)} WHERE id = ?", params)
+        self.conn.commit()
+
+    def list_jobs(self, practice_id: str, limit: int = 20) -> list[dict]:
+        rows = self.conn.execute(
+            "SELECT * FROM jobs WHERE practice_id = ? ORDER BY created_at DESC LIMIT ?",
+            (practice_id, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
 
     def update_practice_vault_key(self, practice_id: str, vault_key_encrypted: str) -> None:
         self.conn.execute(
