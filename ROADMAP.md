@@ -26,7 +26,7 @@ Aquifer's core is a production-grade HIPAA de-identification pipeline covering a
 - Strata API server (FastAPI) with JWT and API key authentication, strict multi-tenant practice isolation
 - Web dashboard for QC review of de-identified output
 - Docker support with multi-stage production builds
-- 569 automated tests with CI across Python 3.11, 3.12, and 3.13
+- 613 automated tests with CI across Python 3.11, 3.12, and 3.13
 - Apache 2.0 license
 
 **Healthcare impact:**
@@ -208,8 +208,8 @@ These items are on a longer horizon, contingent on the foundation established in
 | A | Complete | -- | Core engine, API server, CLI, Docker |
 | B | Complete | -- | Patient share key, tap-to-pull, form scanner, consent, transfer, check-in |
 | C | In progress | 4-8 weeks | Apple Health import, FHIR import, QR check-in (done); patient mobile PWA (planned) |
-| D | Planned | 4-6 weeks | Audit logging, rate limiting, email verification |
-| E | Planned | 6-8 weeks | Local-cloud vault sync, offline-first operation |
+| D | Complete | -- | Audit logging, rate limiting, email verification, async batch jobs, WebSocket progress |
+| E | Complete | -- | Local-cloud vault sync, manifest diff, bidirectional sync, auto-sync, offline-first |
 | F | Planned | 8-12 weeks | PostgreSQL, FHIR bridge, cross-practice analytics |
 | G | Future | -- | PMS integrations, referral networks, health passport |
 
