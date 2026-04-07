@@ -18,9 +18,12 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 
+from pathlib import Path
+
 from fastapi import FastAPI, Request, Response, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from aquifer.strata.auth import AuthContext, AuthResult, resolve_auth
 from aquifer.strata.cloud_vault import CloudVaultManager
@@ -59,6 +62,9 @@ DASHBOARD_PATHS_PREFIX = "/dashboard"
 
 # QR check-in pages are public (patient-facing, share-key auth)
 CHECKIN_PREFIX = "/checkin"
+
+# PWA (patient mobile app) is public
+PWA_PREFIX = "/app"
 
 
 def _check_ner_available() -> bool:
@@ -199,7 +205,8 @@ def create_app(config: StrataConfig | None = None) -> FastAPI:
                 or request.url.path.startswith("/docs")
                 or request.url.path.startswith(DASHBOARD_PATHS_PREFIX)
                 or request.url.path.startswith(PATIENT_APP_PREFIX)
-                or request.url.path.startswith(CHECKIN_PREFIX)):
+                or request.url.path.startswith(CHECKIN_PREFIX)
+                or request.url.path.startswith(PWA_PREFIX)):
             return await call_next(request)
 
         # Skip auth for OPTIONS (CORS preflight)
@@ -341,6 +348,18 @@ def create_app(config: StrataConfig | None = None) -> FastAPI:
                 await websocket.close()
             except Exception:
                 pass
+
+    # --- Patient Mobile PWA ---
+    _pwa_dir = Path(__file__).parent.parent / "pwa"
+
+    @app.get("/app")
+    async def pwa_home():
+        """Serve the patient mobile PWA."""
+        html_path = _pwa_dir / "app.html"
+        return HTMLResponse(content=html_path.read_text())
+
+    if _pwa_dir.exists():
+        app.mount("/app", StaticFiles(directory=str(_pwa_dir)), name="pwa")
 
     # --- Error Handlers ---
     from fastapi import HTTPException as _HTTPException

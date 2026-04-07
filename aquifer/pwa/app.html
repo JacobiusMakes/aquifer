@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#2b6cb0">
+<link rel="manifest" href="/app/manifest.json">
+<link rel="icon" href="/app/icon-192.svg">
+<link rel="apple-touch-icon" href="/app/icon-192.svg">
+<title>Aquifer</title>
+<style>
+  :root {
+    --blue: #2b6cb0; --blue-dark: #1a4971; --blue-light: #ebf8ff;
+    --green: #276749; --green-light: #f0fff4; --green-border: #9ae6b4;
+    --red: #9b2c2c; --red-light: #fff5f5; --red-border: #feb2b2;
+    --gray: #718096; --gray-light: #f7fafc; --gray-border: #e2e8f0;
+    --text: #1a202c; --radius: 12px;
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--gray-light); color: var(--text);
+    min-height: 100vh; min-height: 100dvh;
+    padding-top: var(--safe-top); padding-bottom: var(--safe-bottom);
+  }
+
+  /* Navigation */
+  .nav { position: fixed; bottom: 0; left: 0; right: 0; background: #fff;
+    border-top: 1px solid var(--gray-border); display: flex; z-index: 100;
+    padding-bottom: var(--safe-bottom); }
+  .nav-item { flex: 1; display: flex; flex-direction: column; align-items: center;
+    padding: 8px 0; font-size: 10px; color: var(--gray); cursor: pointer;
+    transition: color 0.2s; text-decoration: none; }
+  .nav-item.active { color: var(--blue); }
+  .nav-item svg { width: 24px; height: 24px; margin-bottom: 2px; }
+
+  /* Pages */
+  .page { display: none; padding: 16px 16px 80px; max-width: 480px; margin: 0 auto; }
+  .page.active { display: block; }
+
+  /* Components */
+  .header { text-align: center; padding: 24px 0 16px; }
+  .header h1 { font-size: 24px; font-weight: 700; color: var(--blue); }
+  .header p { color: var(--gray); font-size: 14px; margin-top: 4px; }
+  .card { background: #fff; border-radius: var(--radius); padding: 20px;
+    box-shadow: 0 1px 8px rgba(0,0,0,0.06); margin-bottom: 12px; }
+  .card h2 { font-size: 16px; margin-bottom: 12px; }
+  .card p { font-size: 14px; color: var(--gray); line-height: 1.5; }
+  label { display: block; font-weight: 600; font-size: 13px; margin-bottom: 6px; color: #4a5568; }
+  input[type=text], input[type=email] {
+    width: 100%; padding: 12px; border: 1px solid var(--gray-border); border-radius: 8px;
+    font-size: 16px; outline: none; transition: border-color 0.2s; }
+  input:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(43,108,176,0.12); }
+  .input-mono { font-family: 'SF Mono','Fira Code',monospace; text-align: center;
+    text-transform: uppercase; letter-spacing: 0.15em; font-size: 20px; }
+  .btn { width: 100%; padding: 14px; background: var(--blue); color: #fff; border: none;
+    border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; transition: 0.2s; }
+  .btn:active { background: var(--blue-dark); transform: scale(0.98); }
+  .btn:disabled { background: #a0aec0; }
+  .btn-outline { background: transparent; color: var(--blue); border: 2px solid var(--blue); }
+  .btn-outline:active { background: var(--blue-light); }
+  .form-group { margin-bottom: 16px; }
+  .help { font-size: 12px; color: #a0aec0; margin-top: 4px; }
+  .success { background: var(--green-light); border: 1px solid var(--green-border);
+    border-radius: 8px; padding: 16px; margin-top: 16px; }
+  .success h3 { color: var(--green); font-size: 14px; margin-bottom: 8px; }
+  .error { background: var(--red-light); border: 1px solid var(--red-border);
+    border-radius: 8px; padding: 16px; margin-top: 16px; color: var(--red); font-size: 14px; }
+  .stat { display: flex; justify-content: space-between; padding: 8px 0;
+    border-bottom: 1px solid var(--green-border); font-size: 13px; }
+  .stat:last-child { border-bottom: none; }
+  .stat .label { color: var(--gray); }
+  .stat .value { font-weight: 600; }
+  .share-key-display { font-family: 'SF Mono','Fira Code',monospace; font-size: 28px;
+    font-weight: 700; text-align: center; color: var(--blue); letter-spacing: 0.1em;
+    padding: 16px; background: var(--blue-light); border-radius: 8px; margin: 12px 0; }
+  .field-row { display: flex; justify-content: space-between; padding: 10px 0;
+    border-bottom: 1px solid var(--gray-border); font-size: 14px; }
+  .field-row:last-child { border-bottom: none; }
+  .field-label { color: var(--gray); font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; }
+  .field-value { font-weight: 500; }
+  .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(255,255,255,0.3);
+    border-top-color: #fff; border-radius: 50%; animation: spin 0.6s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+
+<!-- ==================== HOME ==================== -->
+<div id="page-home" class="page active">
+  <div class="header">
+    <h1>Aquifer</h1>
+    <p>Your portable health identity</p>
+  </div>
+
+  <div class="card" onclick="showPage('checkin')" style="cursor:pointer">
+    <h2>Check In</h2>
+    <p>Arriving at a new practice? Enter your share key to pull your records instantly.</p>
+  </div>
+
+  <div class="card" onclick="showPage('mydata')" style="cursor:pointer">
+    <h2>My Data</h2>
+    <p>View your stored health information across all connected practices.</p>
+  </div>
+
+  <div class="card" onclick="showPage('share')" style="cursor:pointer">
+    <h2>Share</h2>
+    <p>Email your intake data to any practice — even ones not on Aquifer yet.</p>
+  </div>
+
+  <div class="card" onclick="showPage('scan')" style="cursor:pointer">
+    <h2>Scan Form</h2>
+    <p>Take a photo of a paper intake form and auto-fill it with your data.</p>
+  </div>
+</div>
+
+<!-- ==================== CHECK IN ==================== -->
+<div id="page-checkin" class="page">
+  <div class="header">
+    <h1>Check In</h1>
+    <p>Enter your share key at the front desk</p>
+  </div>
+
+  <div class="card">
+    <form id="checkin-form" onsubmit="doCheckin(event)">
+      <div class="form-group">
+        <label>Share Key</label>
+        <input type="text" id="checkin-key" class="input-mono" placeholder="AQ-XXXX-XXXX"
+               maxlength="12" autocomplete="off" required>
+        <p class="help">You received this when you first registered with Aquifer.</p>
+      </div>
+      <div class="form-group">
+        <label>Practice</label>
+        <input type="text" id="checkin-practice" placeholder="Practice slug or URL" autocomplete="off">
+        <p class="help">The practice code from the QR poster, or leave blank.</p>
+      </div>
+      <button type="submit" class="btn" id="checkin-btn">Check In</button>
+    </form>
+    <div id="checkin-result" class="hidden"></div>
+    <div id="checkin-error" class="hidden error"></div>
+  </div>
+</div>
+
+<!-- ==================== MY DATA ==================== -->
+<div id="page-mydata" class="page">
+  <div class="header">
+    <h1>My Data</h1>
+    <p>Your stored health information</p>
+  </div>
+
+  <div class="card">
+    <form id="mydata-form" onsubmit="loadMyData(event)">
+      <div class="form-group">
+        <label>Share Key</label>
+        <input type="text" id="mydata-key" class="input-mono" placeholder="AQ-XXXX-XXXX"
+               maxlength="12" autocomplete="off" required>
+      </div>
+      <div class="form-group">
+        <label>Verification Code (optional)</label>
+        <input type="text" id="mydata-otp" placeholder="6-digit code" maxlength="6" autocomplete="off">
+        <p class="help">Enter your OTP to see full (unmasked) values.</p>
+      </div>
+      <button type="submit" class="btn" id="mydata-btn">View My Data</button>
+    </form>
+    <div id="mydata-result" class="hidden"></div>
+    <div id="mydata-error" class="hidden error"></div>
+  </div>
+</div>
+
+<!-- ==================== SHARE ==================== -->
+<div id="page-share" class="page">
+  <div class="header">
+    <h1>Share</h1>
+    <p>Email your data to a practice</p>
+  </div>
+
+  <div class="card">
+    <form id="share-form" onsubmit="doShare(event)">
+      <div class="form-group">
+        <label>Your Share Key</label>
+        <input type="text" id="share-key" class="input-mono" placeholder="AQ-XXXX-XXXX"
+               maxlength="12" autocomplete="off" required>
+      </div>
+      <div class="form-group">
+        <label>Practice Email</label>
+        <input type="email" id="share-email" placeholder="office@dentist.com" required>
+        <p class="help">The email address of the practice you're visiting.</p>
+      </div>
+      <div class="form-group">
+        <label>Message (optional)</label>
+        <input type="text" id="share-message" placeholder="New patient appointment on Monday">
+      </div>
+      <button type="submit" class="btn" id="share-btn">Send My Data</button>
+    </form>
+    <div id="share-result" class="hidden"></div>
+    <div id="share-error" class="hidden error"></div>
+  </div>
+</div>
+
+<!-- ==================== SCAN FORM ==================== -->
+<div id="page-scan" class="page">
+  <div class="header">
+    <h1>Scan Form</h1>
+    <p>Photograph a paper form to auto-fill</p>
+  </div>
+
+  <div class="card">
+    <form id="scan-form" onsubmit="doScan(event)">
+      <div class="form-group">
+        <label>Your Share Key</label>
+        <input type="text" id="scan-key" class="input-mono" placeholder="AQ-XXXX-XXXX"
+               maxlength="12" autocomplete="off" required>
+      </div>
+      <div class="form-group">
+        <label>Take Photo or Upload Form</label>
+        <input type="file" id="scan-file" accept="image/*,application/pdf" capture="environment"
+               style="font-size:14px; padding:8px 0;" required>
+        <p class="help">Works with photos, scans, or PDF forms.</p>
+      </div>
+      <button type="submit" class="btn" id="scan-btn">Scan & Fill</button>
+    </form>
+    <div id="scan-result" class="hidden"></div>
+    <div id="scan-error" class="hidden error"></div>
+  </div>
+</div>
+
+<!-- ==================== BOTTOM NAV ==================== -->
+<nav class="nav">
+  <a class="nav-item active" onclick="showPage('home')" id="nav-home">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+    Home
+  </a>
+  <a class="nav-item" onclick="showPage('checkin')" id="nav-checkin">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+    Check In
+  </a>
+  <a class="nav-item" onclick="showPage('mydata')" id="nav-mydata">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+    My Data
+  </a>
+  <a class="nav-item" onclick="showPage('share')" id="nav-share">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+    Share
+  </a>
+</nav>
+
+<script>
+// --- Config ---
+const API = window.location.origin + '/api/v1';
+
+// --- Navigation ---
+function showPage(id) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('page-' + id).classList.add('active');
+  const nav = document.getElementById('nav-' + id);
+  if (nav) nav.classList.add('active');
+  // Persist share key across pages
+  const stored = localStorage.getItem('aq_share_key');
+  if (stored) {
+    document.querySelectorAll('.input-mono').forEach(i => { if (!i.value) i.value = stored; });
+  }
+}
+
+// Save share key on input
+document.querySelectorAll('.input-mono').forEach(input => {
+  input.addEventListener('input', (e) => {
+    let v = e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, '');
+    // Auto-format: AQ-XXXX-XXXX
+    if (v.length === 2 && !v.includes('-')) v = v + '-';
+    if (v.length === 7 && v.split('-').length === 2) v = v + '-';
+    e.target.value = v;
+    if (v.length >= 12) localStorage.setItem('aq_share_key', v);
+  });
+});
+
+// --- Check In ---
+async function doCheckin(e) {
+  e.preventDefault();
+  const btn = document.getElementById('checkin-btn');
+  const result = document.getElementById('checkin-result');
+  const error = document.getElementById('checkin-error');
+  result.classList.add('hidden'); error.classList.add('hidden');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Pulling records...';
+
+  const key = document.getElementById('checkin-key').value.trim().toUpperCase();
+  const practice = document.getElementById('checkin-practice').value.trim();
+
+  try {
+    let url, body;
+    if (practice) {
+      url = `${window.location.origin}/checkin/${practice}/pull`;
+      body = { share_key: key };
+    } else {
+      // No practice specified — use the patient my-data endpoint
+      url = `${API}/patient/my-data`;
+      body = { share_key: key };
+    }
+
+    const resp = await fetch(url, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body),
+    });
+    const data = await resp.json();
+
+    if (!resp.ok) {
+      error.textContent = data.detail || data.error || 'Check-in failed.';
+      error.classList.remove('hidden'); return;
+    }
+
+    if (data.transfers !== undefined) {
+      result.innerHTML = `<div class="success"><h3>Check-in Complete</h3>
+        <div class="stat"><span class="label">Patient</span><span class="value">${data.patient_email_masked}</span></div>
+        <div class="stat"><span class="label">Records pulled</span><span class="value">${data.total_tokens} data points</span></div>
+        <div class="stat"><span class="label">Source practices</span><span class="value">${data.transfers.length}</span></div>
+      </div>`;
+    } else {
+      result.innerHTML = `<div class="success"><h3>Your Data</h3>
+        <div class="stat"><span class="label">Email</span><span class="value">${data.email_masked}</span></div>
+      </div>`;
+    }
+    result.classList.remove('hidden');
+  } catch (err) {
+    error.textContent = 'Network error. Check your connection.';
+    error.classList.remove('hidden');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Check In';
+  }
+}
+
+// --- My Data ---
+async function loadMyData(e) {
+  e.preventDefault();
+  const btn = document.getElementById('mydata-btn');
+  const result = document.getElementById('mydata-result');
+  const error = document.getElementById('mydata-error');
+  result.classList.add('hidden'); error.classList.add('hidden');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Loading...';
+
+  const key = document.getElementById('mydata-key').value.trim().toUpperCase();
+  const otp = document.getElementById('mydata-otp').value.trim();
+
+  try {
+    const body = { share_key: key };
+    if (otp) body.otp = otp;
+
+    const resp = await fetch(`${API}/patient/my-data`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body),
+    });
+    const data = await resp.json();
+
+    if (!resp.ok) {
+      error.textContent = data.detail || data.error || 'Failed to load data.';
+      error.classList.remove('hidden'); return;
+    }
+
+    let html = `<div class="success"><h3>Your Health Data</h3>
+      <div class="stat"><span class="label">Email</span><span class="value">${data.email_masked}</span></div>`;
+
+    if (data.fields && Object.keys(data.fields).length > 0) {
+      for (const [key, value] of Object.entries(data.fields)) {
+        const label = key.replace(/_/g, ' ');
+        html += `<div class="field-row"><span class="field-label">${label}</span><span class="field-value">${value}</span></div>`;
+      }
+    } else {
+      html += '<p style="color:#718096;margin-top:12px;font-size:13px">No data stored yet. Visit a practice that uses Aquifer to get started.</p>';
+    }
+
+    if (!data.otp_verified) {
+      html += '<p style="color:#a0aec0;margin-top:12px;font-size:12px">Values are masked. Enter your verification code to see full details.</p>';
+    }
+
+    html += '</div>';
+    result.innerHTML = html;
+    result.classList.remove('hidden');
+  } catch (err) {
+    error.textContent = 'Network error. Check your connection.';
+    error.classList.remove('hidden');
+  } finally {
+    btn.disabled = false; btn.textContent = 'View My Data';
+  }
+}
+
+// --- Share ---
+async function doShare(e) {
+  e.preventDefault();
+  const btn = document.getElementById('share-btn');
+  const result = document.getElementById('share-result');
+  const error = document.getElementById('share-error');
+  result.classList.add('hidden'); error.classList.add('hidden');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Sending...';
+
+  try {
+    const resp = await fetch(`${API}/patient/share-email`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        share_key: document.getElementById('share-key').value.trim().toUpperCase(),
+        practice_email: document.getElementById('share-email').value.trim(),
+        message: document.getElementById('share-message').value.trim() || null,
+      }),
+    });
+    const data = await resp.json();
+
+    if (!resp.ok) {
+      error.textContent = data.detail || data.error || 'Failed to send.';
+      error.classList.remove('hidden'); return;
+    }
+
+    result.innerHTML = `<div class="success"><h3>${data.sent ? 'Sent!' : 'Ready to Copy'}</h3><p style="font-size:13px;white-space:pre-wrap">${data.message}</p></div>`;
+    result.classList.remove('hidden');
+  } catch (err) {
+    error.textContent = 'Network error.';
+    error.classList.remove('hidden');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Send My Data';
+  }
+}
+
+// --- Scan Form ---
+async function doScan(e) {
+  e.preventDefault();
+  const btn = document.getElementById('scan-btn');
+  const result = document.getElementById('scan-result');
+  const error = document.getElementById('scan-error');
+  result.classList.add('hidden'); error.classList.add('hidden');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Scanning...';
+
+  const key = document.getElementById('scan-key').value.trim().toUpperCase();
+  const file = document.getElementById('scan-file').files[0];
+
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const resp = await fetch(`${API}/patient/scan-form`, {
+      method: 'POST',
+      headers: {'X-Share-Key': key},
+      body: formData,
+    });
+    const data = await resp.json();
+
+    if (!resp.ok) {
+      error.textContent = data.detail || data.error || 'Scan failed.';
+      error.classList.remove('hidden'); return;
+    }
+
+    let html = '<div class="success"><h3>Fields Found</h3>';
+    if (data.fields && data.fields.length > 0) {
+      for (const field of data.fields) {
+        const value = field.value || '<em style="color:#a0aec0">not available</em>';
+        html += `<div class="field-row"><span class="field-label">${field.label}</span><span class="field-value">${value}</span></div>`;
+      }
+    } else {
+      html += '<p style="color:#718096;font-size:13px">No form fields detected. Try a clearer photo.</p>';
+    }
+    html += '</div>';
+    result.innerHTML = html;
+    result.classList.remove('hidden');
+  } catch (err) {
+    error.textContent = 'Network error.';
+    error.classList.remove('hidden');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Scan & Fill';
+  }
+}
+
+// --- Service Worker ---
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/app/sw.js').catch(() => {});
+}
+
+// --- Init ---
+const stored = localStorage.getItem('aq_share_key');
+if (stored) {
+  document.querySelectorAll('.input-mono').forEach(i => i.value = stored);
+}
+</script>
+</body>
+</html>
