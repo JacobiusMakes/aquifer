@@ -1,0 +1,98 @@
+# =============================================================================
+# Aquifer — Production Stack
+#
+# Full production deployment with PostgreSQL, nginx TLS termination,
+# and the Strata API server.
+#
+# Usage:
+#   cp .env.example .env && $EDITOR .env   # Fill in secrets
+#   ./scripts/deploy.sh                     # One-command deploy
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # PostgreSQL — production database
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: aquifer-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: aquifer
+      POSTGRES_USER: ${POSTGRES_USER:-aquifer}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-aquifer}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  # ---------------------------------------------------------------------------
+  # Aquifer Strata API Server
+  # ---------------------------------------------------------------------------
+  aquifer-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: aquifer-server
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - AQUIFER_MASTER_KEY=${AQUIFER_MASTER_KEY:?Set AQUIFER_MASTER_KEY in .env}
+      - AQUIFER_JWT_SECRET=${AQUIFER_JWT_SECRET:?Set AQUIFER_JWT_SECRET in .env}
+      - AQUIFER_DATABASE_URL=postgresql://${POSTGRES_USER:-aquifer}:${POSTGRES_PASSWORD}@postgres:5432/aquifer
+      - AQUIFER_DATA_DIR=/data/strata
+      - AQUIFER_HOST=0.0.0.0
+      - AQUIFER_PORT=8443
+    volumes:
+      - strata_data:/data/strata
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8443/api/v1/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+
+  # ---------------------------------------------------------------------------
+  # Nginx — TLS termination + reverse proxy
+  # ---------------------------------------------------------------------------
+  nginx:
+    image: nginx:alpine
+    container_name: aquifer-proxy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+    depends_on:
+      aquifer-server:
+        condition: service_healthy
+
+# ---------------------------------------------------------------------------
+# Named volumes
+# ---------------------------------------------------------------------------
+volumes:
+  postgres_data:
+    driver: local
+  strata_data:
+    driver: local

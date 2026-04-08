@@ -49,3 +49,4 @@ coverage.xml
 
 # Proprietary module (git submodule — requires private repo access)
 # aquifer-claims/ is tracked as a submodule, not ignored
+nginx/certs/
