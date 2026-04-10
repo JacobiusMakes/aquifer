@@ -440,6 +440,83 @@ async def get_health_records(body: MyDataRequest, request: Request):
 
 
 # ---------------------------------------------------------------------------
+# Health Passport
+# ---------------------------------------------------------------------------
+
+class PassportRequest(BaseModel):
+    share_key: str
+    otp: str  # Required — passport contains unmasked PHI
+    format: str = "json"  # json, text, or html
+
+
+@router.post("/passport")
+async def generate_health_passport(body: PassportRequest, request: Request):
+    """Generate a Health Passport — a signed, portable health summary.
+
+    Requires OTP verification because the passport contains full unmasked
+    PHI values. Available in JSON, text, or HTML (printable) format.
+    """
+    from aquifer.patient_app.health_passport import (
+        generate_passport, passport_to_text, passport_to_html,
+    )
+    from fastapi.responses import HTMLResponse
+
+    hub = request.app.state.patient_hub
+    db = request.app.state.db
+
+    patient = _resolve_patient(body.share_key, db)
+    patient_id = patient["id"]
+
+    # Require OTP — passport has unmasked PHI
+    otp_verified = hub.verify_patient(patient_id, body.otp)
+    if not otp_verified:
+        raise HTTPException(403, "Valid OTP required to generate health passport")
+
+    patient_data = _get_patient_data(patient, request.app.state)
+    health_records = hub.get_health_records(patient_id, decrypt=True)
+
+    signing_key = request.app.state.config.master_key
+    passport = generate_passport(
+        patient_id=patient_id,
+        patient_email=patient["email"],
+        share_key=patient.get("share_key", body.share_key),
+        patient_data=patient_data,
+        health_records=health_records,
+        signing_key=signing_key,
+    )
+
+    db.log_audit(
+        practice_id="patient_app",
+        action="patient_app.passport_generated",
+        resource_type="patient",
+        resource_id=patient_id,
+        detail=f"format={body.format}",
+    )
+
+    if body.format == "text":
+        return {"passport_text": passport_to_text(passport)}
+    elif body.format == "html":
+        return HTMLResponse(content=passport_to_html(passport))
+    else:
+        return passport
+
+
+@router.post("/passport/verify")
+async def verify_health_passport(request: Request):
+    """Verify a Health Passport's signature.
+
+    Accepts a passport JSON body and returns whether the signature is valid.
+    """
+    from aquifer.patient_app.health_passport import verify_passport
+
+    body = await request.json()
+    signing_key = request.app.state.config.master_key
+    is_valid = verify_passport(body, signing_key)
+
+    return {"valid": is_valid, "message": "Passport signature is valid." if is_valid else "Invalid signature."}
+
+
+# ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
 
